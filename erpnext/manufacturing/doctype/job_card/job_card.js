@@ -165,8 +165,243 @@ frappe.ui.form.on("Job Card", {
 		}
 	},
 
+<<<<<<< HEAD
 	setup_quality_inspection: function (frm) {
 		let quality_inspection_field = frm.get_docfield("quality_inspection");
+=======
+	// Adds Material Request and Material Transfer buttons when items need to be transferred.
+	setup_material_transfer_buttons(frm, has_items) {
+		const { doc } = frm;
+
+		if (frm.is_new() || doc.skip_material_transfer || doc.docstatus >= 2) return;
+
+		const excess_transfer_allowed = doc.__onload.job_card_excess_transfer;
+		const to_transfer =
+			has_items && doc.items.some((row) => flt(row.transferred_qty) < flt(row.required_qty));
+		const to_request = to_transfer;
+
+		if (has_items && (to_request || excess_transfer_allowed)) {
+			frm.add_custom_button(
+				__("Material Request"),
+				() => frm.trigger("make_material_request"),
+				__("Create")
+			);
+		}
+
+		if (has_items && (to_transfer || excess_transfer_allowed)) {
+			frm.add_custom_button(
+				__("Material Transfer"),
+				() => frm.trigger("make_stock_entry"),
+				__("Create")
+			);
+		}
+	},
+
+	// Renders the dashboard widget (info + timer + action buttons) into job_card_dashboard wrapper.
+	// Returns true if the job timer is actively running, so the caller can skip the stock entry button.
+	setup_job_action_buttons(frm, has_items) {
+		return frm.events.make_dashboard(frm, has_items);
+	},
+
+	complete_job_card(frm) {
+		let pending_qty = frm.doc.for_quantity - frm.doc.total_completed_qty;
+		if (frm.doc.pending_qty > 0) {
+			pending_qty = frm.doc.pending_qty;
+		}
+
+		const fields = [
+			{
+				fieldtype: "Float",
+				label: __("Qty to Manufacture in this Cycle"),
+				fieldname: "for_quantity",
+				reqd: 1,
+				default: pending_qty,
+				description: __("Completed, Pending and Process Loss quantities must add up to this."),
+				change() {
+					const dialog = frm.job_completion_dialog;
+					dialog.set_value("completed_qty", dialog.get_value("for_quantity"));
+					dialog.set_value("pending_qty", 0);
+					dialog.set_value("process_loss_qty", 0);
+				},
+			},
+			{
+				fieldtype: "Float",
+				label: __("Completed Quantity"),
+				fieldname: "completed_qty",
+				default: pending_qty,
+				change() {
+					const dialog = frm.job_completion_dialog;
+					const remaining =
+						dialog.get_value("for_quantity") -
+						dialog.get_value("completed_qty") -
+						dialog.get_value("process_loss_qty");
+
+					if (remaining < 0) {
+						const max_completed_qty =
+							flt(dialog.get_value("for_quantity")) - flt(dialog.get_value("process_loss_qty"));
+						dialog.set_value("completed_qty", max_completed_qty);
+						frappe.throw(
+							__("Completed Quantity cannot be greater than {0}", [
+								get_qty_with_uom(max_completed_qty, frm.doc.stock_uom),
+							])
+						);
+					}
+
+					if (remaining != dialog.get_value("pending_qty")) {
+						dialog.set_value("pending_qty", remaining);
+					}
+				},
+			},
+			{
+				fieldtype: "Float",
+				label: __("Pending Quantity"),
+				fieldname: "pending_qty",
+				default: 0.0,
+				description: __("Qty left for a later cycle or for another job card."),
+				change() {
+					const dialog = frm.job_completion_dialog;
+					const process_loss_qty =
+						dialog.get_value("for_quantity") -
+						dialog.get_value("completed_qty") -
+						dialog.get_value("pending_qty");
+
+					if (process_loss_qty < 0) {
+						dialog.set_value("pending_qty", 0);
+						frappe.throw(
+							__("Pending Quantity cannot be greater than {0}", [
+								get_qty_with_uom(
+									flt(dialog.get_value("for_quantity")) -
+										flt(dialog.get_value("completed_qty")),
+									frm.doc.stock_uom
+								),
+							])
+						);
+					}
+
+					if (process_loss_qty != dialog.get_value("process_loss_qty")) {
+						dialog.set_value("process_loss_qty", process_loss_qty);
+					}
+				},
+			},
+			{
+				fieldtype: "Float",
+				label: __("Process Loss Quantity"),
+				fieldname: "process_loss_qty",
+				description: __("Qty scrapped in this cycle, nobody will produce it."),
+				onchange() {
+					const dialog = frm.job_completion_dialog;
+					const remaining =
+						dialog.get_value("for_quantity") -
+						dialog.get_value("completed_qty") -
+						dialog.get_value("process_loss_qty");
+
+					if (remaining < 0) {
+						dialog.set_value("process_loss_qty", 0);
+						frappe.throw(
+							__("Process Loss Quantity cannot be greater than {0}", [
+								get_qty_with_uom(
+									flt(dialog.get_value("for_quantity")) -
+										flt(dialog.get_value("completed_qty")),
+									frm.doc.stock_uom
+								),
+							])
+						);
+					}
+
+					if (remaining != dialog.get_value("pending_qty")) {
+						dialog.set_value("pending_qty", remaining);
+					}
+				},
+			},
+			{
+				fieldtype: "Section Break",
+			},
+		];
+
+		if (frm.doc.sub_operations?.length) {
+			fields.push({
+				fieldtype: "Link",
+				label: __("Sub Operation"),
+				fieldname: "sub_operation",
+				options: "Operation",
+				get_query() {
+					const non_completed = frm.doc.sub_operations.filter((d) => d.status === "Pending");
+					return {
+						filters: { name: ["in", non_completed.map((d) => d.sub_operation)] },
+					};
+				},
+				reqd: 1,
+			});
+		}
+
+		const last_completed_row = get_last_completed_row(frm.doc.time_logs);
+		let last_row = {};
+		if (frm.doc.sub_operations?.length && frm.doc.time_logs?.length) {
+			last_row = get_last_row(frm.doc.time_logs);
+		}
+
+		if (!last_completed_row || !last_completed_row.to_time || !last_row.to_time) {
+			fields.push({
+				fieldtype: "Datetime",
+				label: __("End Time"),
+				fieldname: "end_time",
+				default: frappe.datetime.now_datetime(),
+			});
+		}
+
+		frm.job_completion_dialog = frappe.prompt(
+			fields,
+			(data) => {
+				if (data.completed_qty < 0) {
+					frappe.throw(__("Completed Quantity cannot be negative"));
+				}
+
+				frm.call({
+					method: "complete_job_card",
+					doc: frm.doc,
+					args: {
+						qty: data.completed_qty,
+						for_quantity: data.for_quantity,
+						pending_qty: data.pending_qty,
+						process_loss_qty: data.process_loss_qty,
+						end_time: data.end_time,
+						sub_operation: data.sub_operation,
+					},
+					callback() {
+						frm.reload_doc();
+					},
+				});
+			},
+			__("Complete Job"),
+			__("Update")
+		);
+	},
+
+	make_subcontracting_po(frm) {
+		if (frm.doc.docstatus === 1 && frm.doc.for_quantity > frm.doc.manufactured_qty) {
+			frm.add_custom_button(__("Make Subcontracting PO"), () => {
+				frappe.model.open_mapped_doc({
+					method: "erpnext.manufacturing.doctype.job_card.mapper.make_subcontracting_po",
+					frm: frm,
+				});
+			}).addClass("btn-primary");
+		}
+	},
+
+	start_timer(frm, start_time, employees) {
+		frm.call({
+			method: "start_timer",
+			doc: frm.doc,
+			args: { start_time, employees },
+			callback() {
+				frm.reload_doc();
+			},
+		});
+	},
+
+	setup_quality_inspection(frm) {
+		const quality_inspection_field = frm.get_docfield("quality_inspection");
+>>>>>>> 1d8ce1e (fix(stock): allow zero completed quantity and handle process loss in job cards (#59104))
 		quality_inspection_field.get_route_options_for_new_doc = function (frm) {
 			return {
 				inspection_type: "In Process",
