@@ -129,6 +129,74 @@ class TestBatch(FrappeTestCase):
 		for d in batches:
 			self.assertEqual(d.qty, batchwise_qty[(d.batch_no, d.warehouse)])
 
+	def test_batch_qty_on_pos_creation(self):
+		from erpnext.accounts.doctype.pos_closing_entry.test_pos_closing_entry import (
+			init_user_and_profile,
+		)
+		from erpnext.accounts.doctype.pos_invoice.test_pos_invoice import create_pos_invoice
+		from erpnext.accounts.doctype.pos_opening_entry.test_pos_opening_entry import create_opening_entry
+		from erpnext.stock.doctype.serial_and_batch_bundle.serial_and_batch_bundle import (
+			get_auto_batch_nos,
+		)
+		from erpnext.stock.doctype.stock_reconciliation.test_stock_reconciliation import (
+			create_batch_item_with_batch,
+		)
+
+		session_user = frappe.session.user
+
+		try:
+			# Create batch item
+			create_batch_item_with_batch("_Test BATCH ITEM", "TestBatch-RS 02")
+
+			# Create stock entry
+			se = make_stock_entry(
+				target="_Test Warehouse - _TC",
+				item_code="_Test BATCH ITEM",
+				qty=30,
+				basic_rate=100,
+			)
+
+			se.reload()
+
+			batch_no = get_batch_from_bundle(se.items[0].serial_and_batch_bundle)
+
+			# Create opening entry
+			session_user = frappe.session.user
+			test_user, pos_profile = init_user_and_profile()
+			create_opening_entry(pos_profile, test_user.name)
+
+			# POS Invoice 1, for the batch without bundle
+			pos_inv1 = create_pos_invoice(item="_Test BATCH ITEM", rate=300, qty=15, do_not_save=1)
+			pos_inv1.append(
+				"payments",
+				{"mode_of_payment": "Cash", "amount": 4500},
+			)
+			pos_inv1.items[0].batch_no = batch_no
+			pos_inv1.save()
+			pos_inv1.submit()
+			pos_inv1.reload()
+
+			# Get auto batch nos after pos invoice
+			batches = get_auto_batch_nos(
+				frappe._dict(
+					{
+						"item_code": "_Test BATCH ITEM",
+						"warehouse": "_Test Warehouse - _TC",
+						"for_stock_levels": True,
+						"ignore_reserved_stock": True,
+					}
+				)
+			)
+
+			# Check batch qty after pos invoice
+			row = _find_batch_row(batches, batch_no, "_Test Warehouse - _TC")
+			self.assertIsNotNone(row)
+			self.assertEqual(row.qty, 30)
+
+		finally:
+			# Set user to session user
+			frappe.set_user(session_user)
+
 	def test_stock_entry_incoming(self):
 		"""Test batch creation via Stock Entry (Work Order)"""
 
@@ -323,6 +391,38 @@ class TestBatch(FrappeTestCase):
 		)
 
 		self.assertEqual(get_batch_qty("batch a", "_Test Warehouse - _TC"), 90)
+
+	def test_ignore_reserved_qty(self):
+		from erpnext.selling.doctype.sales_order.sales_order import create_pick_list
+		from erpnext.selling.doctype.sales_order.test_sales_order import make_sales_order
+
+		batch_item_name = "Reserve Batch Item"
+		batch_id = "Reserve Batch 1"
+		# Create Batch Item
+		self.make_batch_item(batch_item_name)
+		# Create Batch and Material Receipt Entry with qty 90
+		self.make_new_batch_and_entry(batch_item_name, batch_id, "_Test Warehouse - _TC")
+
+		# Enable Stock Reservation
+		frappe.db.set_single_value("Stock Settings", "enable_stock_reservation", 1)
+
+		# Create Sales Order with qty 50
+		sales_order = make_sales_order(
+			item_code=batch_item_name, warehouse="_Test Warehouse - _TC", qty=50, rate=20
+		)
+
+		# Create Pick List for the Sales Order
+		pl = create_pick_list(sales_order.name)
+		pl.submit()
+		# Create Stock Reservation Entries
+		pl.create_stock_reservation_entries(notify=False)
+
+		batch = frappe.get_doc("Batch", batch_id)
+		# Recalculate Batch Qty
+		batch.recalculate_batch_qty()
+		batch.reload()
+		# Case: Ignore Reserved Qty
+		self.assertEqual(batch.batch_qty, 90)
 
 	def test_total_batch_qty(self):
 		self.make_batch_item("ITEM-BATCH-3")
@@ -590,6 +690,10 @@ def create_price_list_for_batch(item_code, batch, rate):
 			"price_list_rate": rate,
 		}
 	).insert()
+
+
+def _find_batch_row(batches, batch_no, warehouse):
+	return next((b for b in batches if b.batch_no == batch_no and b.warehouse == warehouse), None)
 
 
 def make_new_batch(**args):

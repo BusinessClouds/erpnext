@@ -32,11 +32,13 @@ class BankTransaction(Document):
 		date: DF.Date | None
 		deposit: DF.Currency
 		description: DF.SmallText | None
+		excluded_fee: DF.Currency
+		included_fee: DF.Currency
 		naming_series: DF.Literal["ACC-BTN-.YYYY.-"]
 		party: DF.DynamicLink | None
 		party_type: DF.Link | None
 		payment_entries: DF.Table[BankTransactionPayments]
-		reference_number: DF.Data | None
+		reference_number: DF.SmallText | None
 		status: DF.Literal["", "Pending", "Settled", "Unreconciled", "Reconciled", "Cancelled"]
 		transaction_id: DF.Data | None
 		transaction_type: DF.Data | None
@@ -45,9 +47,11 @@ class BankTransaction(Document):
 	# end: auto-generated types
 
 	def before_validate(self):
+		self.handle_excluded_fee()
 		self.update_allocated_amount()
 
 	def validate(self):
+		self.validate_included_fee()
 		self.validate_duplicate_references()
 		self.validate_currency()
 
@@ -132,6 +136,8 @@ class BankTransaction(Document):
 		self.set_status()
 
 	def on_cancel(self):
+		self.ignore_linked_doctypes = ["GL Entry"]
+
 		for payment_entry in self.payment_entries:
 			self.delink_payment_entry(payment_entry)
 
@@ -307,6 +313,40 @@ class BankTransaction(Document):
 
 		self.party_type, self.party = result
 
+	def validate_included_fee(self):
+		"""
+		The included_fee is only handled for withdrawals. An included_fee for a deposit, is not credited to the account and is
+		therefore outside of the deposit value and can be larger than the deposit itself.
+		"""
+
+		if self.included_fee and self.withdrawal:
+			if self.included_fee > self.withdrawal:
+				frappe.throw(_("Included fee is bigger than the withdrawal itself."))
+
+	def handle_excluded_fee(self):
+		# Include the excluded fee on validate to handle all further processing the same
+		excluded_fee = flt(self.excluded_fee)
+		if excluded_fee <= 0:
+			return
+
+		# Suppress a negative deposit (aka withdrawal), likely not intendend
+		if flt(self.deposit) > 0 and (flt(self.deposit) - excluded_fee) < 0:
+			frappe.throw(_("The Excluded Fee is bigger than the Deposit it is deducted from."))
+
+		# Enforce directionality
+		if flt(self.deposit) > 0 and flt(self.withdrawal) > 0:
+			frappe.throw(
+				_("Only one of Deposit or Withdrawal should be non-zero when applying an Excluded Fee.")
+			)
+
+		if flt(self.deposit) > 0:
+			self.deposit = flt(self.deposit) - excluded_fee
+		# A fee applied to deposit and withdrawal equal 0 become a withdrawal
+		elif flt(self.withdrawal) >= 0:
+			self.withdrawal = flt(self.withdrawal) + excluded_fee
+		self.included_fee = flt(self.included_fee) + excluded_fee
+		self.excluded_fee = 0
+
 
 @frappe.whitelist()
 def get_doctypes_for_bank_reconciliation():
@@ -332,11 +372,12 @@ def get_clearance_details(transaction, payment_entry, bt_allocations, gl_entries
 			("unallocated_amount", "bank_account"),
 			as_dict=True,
 		)
+		bt_bank_account = frappe.db.get_value("Bank Account", bt.bank_account, "account")
 
-		if bt.bank_account != gl_bank_account:
+		if bt_bank_account != gl_bank_account:
 			frappe.throw(
 				_("Bank Account {} in Bank Transaction {} is not matching with Bank Account {}").format(
-					bt.bank_account, payment_entry.payment_entry, gl_bank_account
+					bt_bank_account, payment_entry.payment_entry, gl_bank_account
 				)
 			)
 

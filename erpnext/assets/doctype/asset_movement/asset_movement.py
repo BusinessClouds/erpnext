@@ -5,7 +5,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_link_to_form
+from frappe.utils import cstr, get_datetime, get_link_to_form
 
 from erpnext.assets.doctype.asset_activity.asset_activity import add_asset_activity
 
@@ -34,6 +34,7 @@ class AssetMovement(Document):
 		for d in self.assets:
 			self.validate_asset(d)
 			self.validate_movement(d)
+			self.validate_transaction_date(d)
 
 	def validate_asset(self, d):
 		status, company = frappe.db.get_value("Asset", d.asset, ["status", "company"])
@@ -51,6 +52,18 @@ class AssetMovement(Document):
 		else:
 			self.validate_employee(d)
 
+	def validate_transaction_date(self, d):
+		previous_movement_date = frappe.db.get_value(
+			"Asset Movement",
+			[["Asset Movement Item", "asset", "=", d.asset], ["docstatus", "=", 1]],
+			"transaction_date",
+			order_by="transaction_date desc",
+		)
+		if previous_movement_date and get_datetime(previous_movement_date) > get_datetime(
+			self.transaction_date
+		):
+			frappe.throw(_("Transaction date can't be earlier than previous movement date"))
+
 	def validate_location_and_employee(self, d):
 		self.validate_location(d)
 		self.validate_employee(d)
@@ -61,7 +74,7 @@ class AssetMovement(Document):
 			if d.source_location:
 				if current_location != d.source_location:
 					frappe.throw(
-						_("Asset {0} does not belongs to the location {1}").format(d.asset, d.source_location)
+						_("Asset {0} does not belong to the location {1}").format(d.asset, d.source_location)
 					)
 			else:
 				d.source_location = current_location
@@ -75,11 +88,11 @@ class AssetMovement(Document):
 				frappe.throw(_("Target Location is required while receiving Asset {0}").format(d.asset))
 			if d.to_employee and frappe.db.get_value("Employee", d.to_employee, "company") != self.company:
 				frappe.throw(
-					_("Employee {0} does not belongs to the company {1}").format(d.to_employee, self.company)
+					_("Employee {0} does not belong to the company {1}").format(d.to_employee, self.company)
 				)
 
 	def validate_employee(self, d):
-		if self.purpose == "Tranfer and Issue":
+		if self.purpose == "Transfer and Issue":
 			if not d.from_employee:
 				frappe.throw(_("From Employee is required while issuing Asset {0}").format(d.asset))
 
@@ -88,7 +101,7 @@ class AssetMovement(Document):
 
 			if current_custodian != d.from_employee:
 				frappe.throw(
-					_("Asset {0} does not belongs to the custodian {1}").format(d.asset, d.from_employee)
+					_("Asset {0} does not belong to the custodian {1}").format(d.asset, d.from_employee)
 				)
 
 		if not d.to_employee:
@@ -96,7 +109,7 @@ class AssetMovement(Document):
 
 		if d.to_employee and frappe.db.get_value("Employee", d.to_employee, "company") != self.company:
 			frappe.throw(
-				_("Employee {0} does not belongs to the company {1}").format(d.to_employee, self.company)
+				_("Employee {0} does not belong to the company {1}").format(d.to_employee, self.company)
 			)
 
 	def on_submit(self):
@@ -142,8 +155,8 @@ class AssetMovement(Document):
 	def update_asset_location_and_custodian(self, asset_id, location, employee):
 		asset = frappe.get_doc("Asset", asset_id)
 
-		if employee and employee != asset.custodian:
-			frappe.db.set_value("Asset", asset_id, "custodian", employee)
+		if cstr(employee) != asset.custodian:
+			frappe.db.set_value("Asset", asset_id, "custodian", cstr(employee))
 		if location and location != asset.location:
 			frappe.db.set_value("Asset", asset_id, "location", location)
 

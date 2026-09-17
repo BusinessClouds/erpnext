@@ -108,7 +108,12 @@ def get_indexed_packed_items_table(doc):
 	"""
 	indexed_table = {}
 	for packed_item in doc.get("packed_items"):
-		key = (packed_item.parent_item, packed_item.item_code, packed_item.parent_detail_docname)
+		key = (
+			packed_item.parent_item,
+			packed_item.item_code,
+			packed_item.idx if doc.is_new() else packed_item.parent_detail_docname,
+		)
+
 		indexed_table[key] = packed_item
 
 	return indexed_table
@@ -169,7 +174,11 @@ def add_packed_item_row(doc, packing_item, main_item_row, packed_items_table, re
 	exists, pi_row = False, {}
 
 	# check if row already exists in packed items table
-	key = (main_item_row.item_code, packing_item.item_code, main_item_row.name)
+	key = (
+		main_item_row.item_code,
+		packing_item.item_code,
+		main_item_row.idx if doc.is_new() else main_item_row.name,
+	)
 	if packed_items_table.get(key):
 		pi_row, exists = packed_items_table.get(key), True
 
@@ -330,11 +339,19 @@ def update_product_bundle_rate(parent_items_price, pi_row, item_row):
 
 def set_product_bundle_rate_amount(doc, parent_items_price):
 	"Set cumulative rate and amount in bundle item."
+	rate_updated = False
 	for item in doc.get("items"):
 		bundle_rate = parent_items_price.get((item.item_code, item.name))
 		if bundle_rate and bundle_rate != item.rate:
 			item.rate = bundle_rate
 			item.amount = flt(bundle_rate * item.qty)
+			item.margin_rate_or_amount = 0
+			item.discount_percentage = 0
+			item.discount_amount = 0
+			rate_updated = True
+	if rate_updated:
+		doc.calculate_taxes_and_totals()
+		doc.set_total_in_words()
 
 
 def on_doctype_update():

@@ -3,7 +3,10 @@
 
 
 import frappe
+from frappe.defaults import get_user_default
 from frappe.utils import cint
+
+from erpnext.accounts.utils import get_fiscal_years
 
 
 def boot_session(bootinfo):
@@ -47,15 +50,23 @@ def boot_session(bootinfo):
 
 		bootinfo.docs += frappe.db.sql(
 			"""select name, default_currency, cost_center, default_selling_terms, default_buying_terms,
-			default_letter_head, default_bank_account, enable_perpetual_inventory, country from `tabCompany`""",
+			default_letter_head, default_bank_account, enable_perpetual_inventory, country, exchange_gain_loss_account from `tabCompany`""",
 			as_dict=1,
 			update={"doctype": ":Company"},
 		)
 
 		party_account_types = frappe.db.sql(""" select name, ifnull(account_type, '') from `tabParty Type`""")
+		fiscal_year = get_fiscal_years(
+			frappe.utils.nowdate(), company=get_user_default("company"), boolean=True
+		)
+		if fiscal_year:
+			bootinfo.current_fiscal_year = fiscal_year[0]
 		bootinfo.party_account_types = frappe._dict(party_account_types)
 
 		bootinfo.sysdefaults.demo_company = frappe.db.get_single_value("Global Defaults", "demo_company")
+		bootinfo.sysdefaults.default_ageing_range = frappe.db.get_single_value(
+			"Accounts Settings", "default_ageing_range"
+		)
 
 
 def update_page_info(bootinfo):
@@ -74,6 +85,8 @@ def update_page_info(bootinfo):
 def bootinfo(bootinfo):
 	if bootinfo.get("user") and bootinfo["user"].get("name"):
 		bootinfo["user"]["employee"] = ""
+		frappe.session.data.employee = ""
 		employee = frappe.db.get_value("Employee", {"user_id": bootinfo["user"]["name"]}, "name")
 		if employee:
 			bootinfo["user"]["employee"] = employee
+			frappe.session.data.employee = employee

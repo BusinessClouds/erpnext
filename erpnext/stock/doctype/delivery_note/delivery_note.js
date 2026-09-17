@@ -130,16 +130,13 @@ frappe.ui.form.on("Delivery Note Item", {
 		var d = locals[dt][dn];
 		frm.update_in_all_rows("items", "expense_account", d.expense_account);
 	},
-	cost_center: function (frm, dt, dn) {
-		var d = locals[dt][dn];
-		frm.update_in_all_rows("items", "cost_center", d.cost_center);
-	},
 });
 
 erpnext.stock.DeliveryNoteController = class DeliveryNoteController extends (
 	erpnext.selling.SellingController
 ) {
 	setup(doc) {
+		this.setup_accounting_dimension_triggers();
 		this.setup_posting_date_time_check();
 		super.setup(doc);
 		this.frm.make_methods = {
@@ -182,6 +179,9 @@ erpnext.stock.DeliveryNoteController = class DeliveryNoteController extends (
 							company: me.frm.doc.company,
 							project: me.frm.doc.project || undefined,
 						},
+						allow_child_item_selection: true,
+						child_fieldname: "items",
+						child_columns: ["item_code", "item_name", "qty", "delivered_qty"],
 					});
 				},
 				__("Get Items From")
@@ -231,6 +231,9 @@ erpnext.stock.DeliveryNoteController = class DeliveryNoteController extends (
 						},
 						get_query_method: "erpnext.stock.doctype.pick_list.pick_list.get_pick_list_query",
 						size: "extra-large",
+						allow_child_item_selection: true,
+						child_fieldname: "locations",
+						child_columns: ["item_code", "item_name", "stock_qty", "delivered_qty"],
 					});
 				},
 				__("Get Items From")
@@ -328,6 +331,7 @@ erpnext.stock.DeliveryNoteController = class DeliveryNoteController extends (
 		if (
 			doc.docstatus == 1 &&
 			!doc.is_return &&
+			doc.per_returned != 100 &&
 			doc.status != "Closed" &&
 			flt(doc.per_billed) < 100 &&
 			frappe.model.can_create("Sales Invoice")

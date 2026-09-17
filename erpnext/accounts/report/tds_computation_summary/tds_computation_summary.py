@@ -20,16 +20,12 @@ def execute(filters=None):
 
 	columns = get_columns(filters)
 	(
-		tds_docs,
 		tds_accounts,
 		tax_category_map,
-		journal_entry_party_map,
-		invoice_total_map,
+		net_total_map,
 	) = get_tds_docs(filters)
 
-	res = get_result(
-		filters, tds_docs, tds_accounts, tax_category_map, journal_entry_party_map, invoice_total_map
-	)
+	res = get_result(filters, tds_accounts, tax_category_map, net_total_map)
 	final_result = group_by_party_and_category(res, filters)
 
 	return columns, final_result
@@ -128,7 +124,7 @@ def get_columns(filters):
 				"width": 120,
 			},
 			{
-				"label": _("Total Amount"),
+				"label": _("Total Taxable Amount"),
 				"fieldname": "total_amount",
 				"fieldtype": "Float",
 				"width": 120,

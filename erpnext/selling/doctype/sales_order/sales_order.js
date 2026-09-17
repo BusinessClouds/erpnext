@@ -26,7 +26,7 @@ frappe.ui.form.on("Sales Order", {
 			let color;
 			if (!doc.qty && frm.doc.has_unit_price_items) {
 				color = "yellow";
-			} else if (doc.stock_qty <= doc.delivered_qty) {
+			} else if (doc.stock_qty <= doc.actual_qty) {
 				color = "green";
 			} else {
 				color = "orange";
@@ -44,8 +44,24 @@ frappe.ui.form.on("Sales Order", {
 			};
 		});
 
+		frm.set_query("sales_person", "sales_team", function () {
+			return {
+				filters: {
+					is_group: 0,
+					enabled: 1,
+				},
+			};
+		});
+
 		frm.set_df_property("packed_items", "cannot_add_rows", true);
 		frm.set_df_property("packed_items", "cannot_delete_rows", true);
+	},
+	delivery_date(frm) {
+		if (frm.doc.delivery_date) {
+			frm.doc.items.forEach((d) => {
+				frappe.model.set_value(d.doctype, d.name, "delivery_date", frm.doc.delivery_date);
+			});
+		}
 	},
 
 	refresh: function (frm) {
@@ -136,7 +152,7 @@ frappe.ui.form.on("Sales Order", {
 				});
 			}
 		}
-
+		prevent_past_delivery_dates(frm);
 		// Hide `Reserve Stock` field description in submitted or cancelled Sales Order.
 		if (frm.doc.docstatus > 0) {
 			frm.set_df_property("reserve_stock", "description", null);
@@ -213,13 +229,6 @@ frappe.ui.form.on("Sales Order", {
 			"Unreconcile Payment",
 			"Unreconcile Payment Entries",
 		];
-	},
-
-	delivery_date: function (frm) {
-		$.each(frm.doc.items || [], function (i, d) {
-			if (!d.delivery_date) d.delivery_date = frm.doc.delivery_date;
-		});
-		refresh_field("items");
 	},
 
 	create_stock_reservation_entries(frm) {
@@ -565,6 +574,10 @@ frappe.ui.form.on("Sales Order Item", {
 });
 
 erpnext.selling.SalesOrderController = class SalesOrderController extends erpnext.selling.SellingController {
+	setup(doc) {
+		this.setup_accounting_dimension_triggers();
+		super.setup(doc);
+	}
 	onload(doc, dt, dn) {
 		super.onload(doc, dt, dn);
 	}
@@ -738,8 +751,8 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 						if (internal) {
 							let button_label =
 								me.frm.doc.company === me.frm.doc.represents_company
-									? "Internal Purchase Order"
-									: "Inter Company Purchase Order";
+									? __("Internal Purchase Order")
+									: __("Inter Company Purchase Order");
 
 							me.frm.add_custom_button(
 								button_label,
@@ -793,6 +806,9 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 							docstatus: 1,
 							status: ["!=", "Lost"],
 						},
+						allow_child_item_selection: true,
+						child_fieldname: "items",
+						child_columns: ["item_code", "item_name", "qty", "rate", "amount"],
 					});
 
 					setTimeout(() => {
@@ -1167,7 +1183,7 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 
 	make_purchase_order() {
 		let pending_items = this.frm.doc.items.some((item) => {
-			let pending_qty = flt(item.stock_qty) - flt(item.ordered_qty);
+			const pending_qty = flt(item.stock_qty) - this.get_ordered_qty(item, this.frm.doc);
 			return pending_qty > 0;
 		});
 		if (!pending_items) {
@@ -1321,8 +1337,10 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 			// calculate ordered qty based on packed items in case of product bundle
 			let packed_items = so.packed_items.filter((pi) => pi.parent_detail_docname == item.name);
 			if (packed_items && packed_items.length) {
-				ordered_qty = packed_items.reduce((sum, pi) => sum + flt(pi.ordered_qty), 0);
-				ordered_qty = ordered_qty / packed_items.length;
+				const all_packed_items_ordered = packed_items.every(
+					(pi) => flt(pi.ordered_qty) >= flt(pi.qty)
+				);
+				ordered_qty = all_packed_items_ordered ? item.stock_qty : 0;
 			}
 		}
 		return ordered_qty;
@@ -1382,3 +1400,11 @@ erpnext.selling.SalesOrderController = class SalesOrderController extends erpnex
 };
 
 extend_cscript(cur_frm.cscript, new erpnext.selling.SalesOrderController({ frm: cur_frm }));
+
+function prevent_past_delivery_dates(frm) {
+	if (frm.doc.transaction_date) {
+		frm.fields_dict["delivery_date"].datepicker?.update({
+			minDate: new Date(frm.doc.transaction_date),
+		});
+	}
+}

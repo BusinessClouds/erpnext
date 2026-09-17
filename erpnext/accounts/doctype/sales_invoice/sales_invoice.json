@@ -45,6 +45,7 @@
   "items_section",
   "scan_barcode",
   "update_stock",
+  "last_scanned_warehouse",
   "column_break_39",
   "set_warehouse",
   "set_target_warehouse",
@@ -280,6 +281,7 @@
    "read_only": 1
   },
   {
+   "fetch_from": "customer.tax_id",
    "fieldname": "tax_id",
    "fieldtype": "Data",
    "hide_days": 1,
@@ -371,7 +373,7 @@
    "fieldtype": "Date",
    "hide_days": 1,
    "hide_seconds": 1,
-   "label": "Date",
+   "label": "Posting Date",
    "no_copy": 1,
    "oldfieldname": "posting_date",
    "oldfieldtype": "Date",
@@ -699,6 +701,7 @@
   },
   {
    "default": "0",
+   "depends_on": "eval:doc.items.every((item) => !item.dn_detail)",
    "fieldname": "update_stock",
    "fieldtype": "Check",
    "hide_days": 1,
@@ -2177,6 +2180,13 @@
    "label": "Company Contact Person",
    "options": "Contact",
    "print_hide": 1
+  },
+  {
+   "depends_on": "eval: doc.last_scanned_warehouse",
+   "fieldname": "last_scanned_warehouse",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Last Scanned Warehouse"
   }
  ],
  "grid_page_length": 50,
@@ -2190,7 +2200,7 @@
    "link_fieldname": "consolidated_invoice"
   }
  ],
- "modified": "2025-08-04 19:20:28.732039",
+ "modified": "2026-02-05 20:43:44.732805",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "Sales Invoice",

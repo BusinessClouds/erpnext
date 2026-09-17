@@ -457,7 +457,8 @@ erpnext.SerialBatchPackageSelector = class SerialNoBatchBundleUpdate {
 							(["Purchase Receipt", "Purchase Invoice"].includes(this.frm.doc.doctype) &&
 								!this.frm.doc.is_return) ||
 							(this.frm.doc.doctype === "Stock Entry" &&
-								this.frm.doc.purpose === "Material Receipt")
+								(this.frm.doc.purpose === "Material Receipt" ||
+									(this.frm.doc.purpose === "Manufacture" && this.item.is_finished_item)))
 						) {
 							is_inward = true;
 						}
@@ -706,7 +707,7 @@ erpnext.SerialBatchPackageSelector = class SerialNoBatchBundleUpdate {
 	}
 
 	render_data() {
-		if (this.bundle || this.frm.doc.is_return) {
+		if (this.bundle || (this.frm.doc.is_return && this.frm.doc.return_against)) {
 			frappe
 				.call({
 					method: "erpnext.stock.doctype.serial_and_batch_bundle.serial_and_batch_bundle.get_serial_batch_ledgers",

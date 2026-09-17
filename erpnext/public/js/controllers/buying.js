@@ -2,7 +2,6 @@
 // License: GNU General Public License v3. See license.txt
 
 frappe.provide("erpnext.buying");
-// cur_frm.add_fetch('project', 'cost_center', 'cost_center');
 
 erpnext.buying = {
 	setup_buying_controller: function() {
@@ -11,6 +10,7 @@ erpnext.buying = {
 				super.setup();
 				this.toggle_enable_for_stock_uom("allow_to_edit_stock_uom_qty_for_purchase");
 				this.frm.email_field = "contact_email";
+				this.frm.add_fetch("project", "cost_center", "cost_center");
 			}
 
 			onload(doc, cdt, cdn) {
@@ -140,6 +140,7 @@ erpnext.buying = {
 
 				this.toggle_subcontracting_fields();
 				super.refresh();
+				this.prevent_past_schedule_dates(this.frm);
 			}
 
 			toggle_subcontracting_fields() {
@@ -159,8 +160,9 @@ erpnext.buying = {
 				});
 			}
 
-			company(){
-				if(!frappe.meta.has_field(this.frm.doc.doctype, "billing_address")) return;
+			company() {
+				super.company();
+				if (!frappe.meta.has_field(this.frm.doc.doctype, "billing_address")) return;
 
 				frappe.call({
 					method: "erpnext.setup.doctype.company.company.get_billing_shipping_address",
@@ -170,13 +172,38 @@ erpnext.buying = {
 						shipping_address: this.frm.doc.shipping_address
 					},
 					callback: (r) => {
+						if (!r.message) return;
+
 						this.frm.set_value("billing_address", r.message.primary_address || "");
 
-						if(!frappe.meta.has_field(this.frm.doc.doctype, "shipping_address")) return;
-						this.frm.set_value("shipping_address", r.message.shipping_address || "");
+						if (frappe.meta.has_field(this.frm.doc.doctype, "shipping_address")) {
+							this.frm.set_value("shipping_address", r.message.shipping_address || "");
+						}
 					},
 				});
 				erpnext.utils.set_letter_head(this.frm)
+			}
+
+			schedule_date(doc, cdt, cdn) {
+				if (doc.schedule_date && !cdt.endsWith(" Item")) {
+					doc.items.forEach((d) => {
+						frappe.model.set_value(d.doctype, d.name, "schedule_date", doc.schedule_date);
+					});
+				}
+			}
+
+			transaction_date() {
+				super.transaction_date();
+				this.frm.set_value("schedule_date", "");
+				this.prevent_past_schedule_dates(this.frm);
+			}
+
+			prevent_past_schedule_dates(frm) {
+				if (frm.doc.transaction_date && frm.fields_dict["schedule_date"]) {
+					frm.fields_dict["schedule_date"].datepicker?.update({
+						minDate: new Date(frm.doc.transaction_date),
+					});
+				}
 			}
 
 			supplier_address() {

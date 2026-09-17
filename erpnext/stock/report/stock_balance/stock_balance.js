@@ -61,10 +61,10 @@ frappe.query_reports["Stock Balance"] = {
 					},
 				});
 
-				data = data.map(({ name, description }) => {
+				data = data.map(({ name, ...rest }) => {
 					return {
 						value: name,
-						description: description,
+						description: Object.values(rest),
 					};
 				});
 
@@ -150,6 +150,13 @@ frappe.query_reports["Stock Balance"] = {
 		}
 
 		return value;
+	},
+
+	onload: function (report) {
+		report.page.add_inner_button(__("View Stock Ledger"), function () {
+			var filters = report.get_values();
+			frappe.set_route("query-report", "Stock Ledger", filters);
+		});
 	},
 };
 

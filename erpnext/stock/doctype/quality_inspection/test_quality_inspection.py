@@ -140,7 +140,8 @@ class TestQualityInspection(FrappeTestCase):
 		dn = create_delivery_note(item_code="_Test Item with QA", do_not_submit=True)
 		for item in dn.items:
 			item.sample_size = item.qty
-		quality_inspections = make_quality_inspections(dn.doctype, dn.name, dn.items)
+
+		quality_inspections = make_quality_inspections(dn.company, dn.doctype, dn.name, dn.items)
 		self.assertEqual(len(dn.items), len(quality_inspections))
 
 		# cleanup
@@ -290,7 +291,7 @@ def create_quality_inspection(**args):
 
 	if not args.readings:
 		create_quality_inspection_parameter("Size")
-		readings = {"specification": "Size", "min_value": 0, "max_value": 10}
+		readings = {"specification": "Size", "min_value": 0, "max_value": 10, "reading_1": "5"}
 		if args.status == "Rejected":
 			readings["reading_1"] = "12"  # status is auto set in child on save
 	else:
