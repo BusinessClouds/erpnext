@@ -83,9 +83,11 @@ status_map = {
 	],
 	"Delivery Note": [
 		["Draft", None],
-		["To Bill", "eval:self.per_billed < 100 and self.docstatus == 1"],
+		["To Bill", "eval:self.per_billed == 0 and self.docstatus == 1"],
+		["Partially Billed", "eval:self.per_billed < 100 and self.per_billed > 0 and self.docstatus == 1"],
 		["Completed", "eval:self.per_billed == 100 and self.docstatus == 1"],
 		["Return Issued", "eval:self.per_returned == 100 and self.docstatus == 1"],
+		["Return", "eval:self.is_return == 1 and self.per_billed == 0 and self.docstatus == 1"],
 		["Cancelled", "eval:self.docstatus==2"],
 		["Closed", "eval:self.status=='Closed' and self.docstatus != 2"],
 	],
@@ -93,6 +95,7 @@ status_map = {
 		["Draft", None],
 		["To Bill", "eval:self.per_billed == 0 and self.docstatus == 1"],
 		["Partly Billed", "eval:self.per_billed > 0 and self.per_billed < 100 and self.docstatus == 1"],
+		["Return", "eval:self.is_return == 1 and self.per_billed == 0 and self.docstatus == 1"],
 		["Return Issued", "eval:self.per_returned == 100 and self.docstatus == 1"],
 		[
 			"Completed",
@@ -108,7 +111,7 @@ status_map = {
 		["Pending", "eval:self.status != 'Stopped' and self.per_ordered == 0 and self.docstatus == 1"],
 		[
 			"Ordered",
-			"eval:self.status != 'Stopped' and self.per_ordered == 100 and self.docstatus == 1 and self.material_request_type == 'Purchase'",
+			"eval:self.status != 'Stopped' and self.per_ordered == 100 and self.docstatus == 1 and self.material_request_type in ['Purchase', 'Manufacture', 'Subcontracting']",
 		],
 		[
 			"Transferred",
@@ -133,10 +136,6 @@ status_map = {
 		[
 			"Partially Ordered",
 			"eval:self.status != 'Stopped' and self.per_ordered < 100 and self.per_ordered > 0 and self.docstatus == 1 and self.material_request_type != 'Material Transfer'",
-		],
-		[
-			"Manufactured",
-			"eval:self.status != 'Stopped' and self.per_ordered == 100 and self.docstatus == 1 and self.material_request_type == 'Manufacture'",
 		],
 	],
 	"POS Opening Entry": [
@@ -235,8 +234,8 @@ class StatusUpdater(Document):
 		self.global_amount_allowance = None
 
 		for args in self.status_updater:
-			if "target_ref_field" not in args:
-				# if target_ref_field is not specified, the programmer does not want to validate qty / amount
+			if "target_ref_field" not in args or args.get("validate_qty") is False:
+				# if target_ref_field is not specified or validate_qty is explicitly set to False, skip validation
 				continue
 
 			# get unique transactions to update
@@ -343,14 +342,17 @@ class StatusUpdater(Document):
 		):
 			return
 
-		if qty_or_amount == "qty":
-			action_msg = _(
-				'To allow over receipt / delivery, update "Over Receipt/Delivery Allowance" in Stock Settings or the Item.'
-			)
+		if args["target_dt"] != "Quotation Item":
+			if qty_or_amount == "qty":
+				action_msg = _(
+					'To allow over receipt / delivery, update "Over Receipt/Delivery Allowance" in Stock Settings or the Item.'
+				)
+			else:
+				action_msg = _(
+					'To allow over billing, update "Over Billing Allowance" in Accounts Settings or the Item.'
+				)
 		else:
-			action_msg = _(
-				'To allow over billing, update "Over Billing Allowance" in Accounts Settings or the Item.'
-			)
+			action_msg = None
 
 		frappe.throw(
 			_(
@@ -362,8 +364,7 @@ class StatusUpdater(Document):
 				frappe.bold(_(self.doctype)),
 				frappe.bold(item.get("item_code")),
 			)
-			+ "<br><br>"
-			+ action_msg,
+			+ ("<br><br>" + action_msg if action_msg else ""),
 			OverAllowanceError,
 			title=_("Limit Crossed"),
 		)

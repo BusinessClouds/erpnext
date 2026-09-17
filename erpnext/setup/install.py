@@ -4,14 +4,13 @@
 
 import click
 import frappe
-from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.desk.page.setup_wizard.setup_wizard import add_all_roles_to
-from frappe.utils import cint
 
 import erpnext
 from erpnext.setup.default_energy_point_rules import get_default_energy_point_rules
 from erpnext.setup.doctype.incoterm.incoterm import create_incoterms
+from erpnext.setup.utils import identity as _
 
 from .default_success_action import get_default_success_action
 
@@ -25,6 +24,7 @@ def after_install():
 
 	set_single_defaults()
 	create_print_setting_custom_fields()
+	create_custom_company_links()
 	add_all_roles_to("Administrator")
 	create_default_success_action()
 	create_default_energy_point_rules()
@@ -92,7 +92,7 @@ def setup_currency_exchange():
 		ces.set("result_key", [])
 		ces.set("req_params", [])
 
-		ces.api_endpoint = "https://api.frankfurter.app/{transaction_date}"
+		ces.api_endpoint = "https://api.frankfurter.dev/v1/{transaction_date}"
 		ces.append("result_key", {"key": "rates"})
 		ces.append("result_key", {"key": "{to_currency}"})
 		ces.append("req_params", {"key": "base", "value": "{from_currency}"})
@@ -132,6 +132,39 @@ def create_print_setting_custom_fields():
 	)
 
 
+def create_custom_company_links():
+	"""Add link fields to Company in Email Account and Communication.
+
+	These DocTypes are provided by the Frappe Framework but need to be associated
+	with a company in ERPNext to allow for multitenancy. I.e. one company should
+	not be able to access emails and communications from another company.
+	"""
+	create_custom_fields(
+		{
+			"Email Account": [
+				{
+					"label": _("Company"),
+					"fieldname": "company",
+					"fieldtype": "Link",
+					"options": "Company",
+					"insert_after": "email_id",
+				},
+			],
+			"Communication": [
+				{
+					"label": _("Company"),
+					"fieldname": "company",
+					"fieldtype": "Link",
+					"options": "Company",
+					"insert_after": "email_account",
+					"fetch_from": "email_account.company",
+					"read_only": 1,
+				},
+			],
+		},
+	)
+
+
 def create_default_success_action():
 	for success_action in get_default_success_action():
 		if not frappe.db.exists("Success Action", success_action.get("ref_doctype")):
@@ -159,28 +192,27 @@ def add_company_to_session_defaults():
 
 def add_standard_navbar_items():
 	navbar_settings = frappe.get_single("Navbar Settings")
-
 	erpnext_navbar_items = [
 		{
-			"item_label": "Documentation",
+			"item_label": _("Documentation"),
 			"item_type": "Route",
 			"route": "https://docs.erpnext.com/",
 			"is_standard": 1,
 		},
 		{
-			"item_label": "User Forum",
+			"item_label": _("User Forum"),
 			"item_type": "Route",
 			"route": "https://discuss.frappe.io",
 			"is_standard": 1,
 		},
 		{
-			"item_label": "Frappe School",
+			"item_label": _("Frappe School"),
 			"item_type": "Route",
 			"route": "https://frappe.io/school?utm_source=in_app",
 			"is_standard": 1,
 		},
 		{
-			"item_label": "Report an Issue",
+			"item_label": _("Report an Issue"),
 			"item_type": "Route",
 			"route": "https://github.com/frappe/erpnext/issues",
 			"is_standard": 1,
@@ -228,6 +260,20 @@ def update_roles():
 
 def create_default_role_profiles():
 	for role_profile_name, roles in DEFAULT_ROLE_PROFILES.items():
+		if frappe.db.exists("Role Profile", role_profile_name):
+			role_profile = frappe.get_doc("Role Profile", role_profile_name)
+			existing_roles = [row.role for row in role_profile.roles]
+
+			role_profile.roles = [row for row in role_profile.roles if row.role in roles]
+
+			for role in roles:
+				if role not in existing_roles:
+					role_profile.append("roles", {"role": role})
+
+			role_profile.save(ignore_permissions=True)
+
+			continue
+
 		role_profile = frappe.new_doc("Role Profile")
 		role_profile.role_profile = role_profile_name
 		for role in roles:
@@ -250,8 +296,20 @@ def update_pegged_currencies():
 		{"source_currency": "SAR", "pegged_against": "USD", "pegged_exchange_rate": 3.75},
 	]
 
+	# Add items on pegged_currency_item if source_currency and pegged_against currency doc exist.
+
+	currencies_exist = frappe.db.get_list(
+		"Currency", {"name": ["in", ["AED", "BHD", "JOD", "OMR", "QAR", "SAR", "USD"]]}, pluck="name"
+	)
+
+	if "USD" not in currencies_exist:
+		return
+
 	for currency in currencies_to_add:
-		if currency["source_currency"] not in existing_sources:
+		if (
+			currency["source_currency"] in currencies_exist
+			and currency["source_currency"] not in existing_sources
+		):
 			doc.append("pegged_currency_item", currency)
 
 	doc.save()

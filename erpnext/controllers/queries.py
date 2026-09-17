@@ -15,6 +15,7 @@ from frappe.utils import cint, nowdate, today, unique
 from pypika import Order
 
 import erpnext
+from erpnext.accounts.utils import build_qb_match_conditions
 from erpnext.stock.get_item_details import _get_item_tax_template
 
 
@@ -313,7 +314,7 @@ def get_project_name(doctype, txt, searchfield, start, page_len, filters):
 	if filters:
 		if filters.get("customer"):
 			qb_filter_and_conditions.append(
-				(proj.customer == filters.get("customer")) | proj.customer.isnull() | proj.customer == ""
+				(proj.customer == filters.get("customer")) | (proj.customer.isnull()) | (proj.customer == "")
 			)
 
 		if filters.get("company"):
@@ -583,49 +584,62 @@ def get_account_list(doctype, txt, searchfield, start, page_len, filters):
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_blanket_orders(doctype, txt, searchfield, start, page_len, filters):
-	return frappe.db.sql(
-		"""select distinct bo.name, bo.blanket_order_type, bo.to_date
-		from `tabBlanket Order` bo, `tabBlanket Order Item` boi
-		where
-			boi.parent = bo.name
-			and boi.item_code = {item_code}
-			and bo.blanket_order_type = '{blanket_order_type}'
-			and bo.company = {company}
-			and bo.docstatus = 1""".format(
-			item_code=frappe.db.escape(filters.get("item")),
-			blanket_order_type=filters.get("blanket_order_type"),
-			company=frappe.db.escape(filters.get("company")),
+	bo = frappe.qb.DocType("Blanket Order")
+	bo_item = frappe.qb.DocType("Blanket Order Item")
+
+	blanket_orders = (
+		frappe.qb.from_(bo)
+		.from_(bo_item)
+		.select(bo.name)
+		.distinct()
+		.select(bo.blanket_order_type, bo.to_date)
+		.where(
+			(bo_item.parent == bo.name)
+			& (bo_item.item_code == filters.get("item"))
+			& (bo.blanket_order_type == filters.get("blanket_order_type"))
+			& (bo.company == filters.get("company"))
+			& (bo.docstatus == 1)
 		)
+		.run()
 	)
+
+	return blanket_orders
 
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_income_account(doctype, txt, searchfield, start, page_len, filters):
-	from erpnext.controllers.queries import get_match_cond
-
 	# income account can be any Credit account,
 	# but can also be a Asset account with account_type='Income Account' in special circumstances.
 	# Hence the first condition is an "OR"
+
 	if not filters:
 		filters = {}
 
-	doctype = "Account"
-	condition = ""
+	dt = "Account"
+
+	acc = qb.DocType(dt)
+	condition = [
+		(acc.report_type.eq("Profit and Loss") | acc.account_type.isin(["Income Account", "Temporary"])),
+		acc.is_group.eq(0),
+		acc.disabled.eq(0),
+	]
+	if txt:
+		condition.append(acc.name.like(f"%{txt}%"))
+
 	if filters.get("company"):
-		condition += "and tabAccount.company = %(company)s"
+		condition.append(acc.company.eq(filters.get("company")))
 
-	condition += f"and tabAccount.disabled = {filters.get('disabled', 0)}"
+	user_perms = build_qb_match_conditions(dt)
+	condition.extend(user_perms)
 
-	return frappe.db.sql(
-		f"""select tabAccount.name from `tabAccount`
-			where (tabAccount.report_type = "Profit and Loss"
-					or tabAccount.account_type in ("Income Account", "Temporary"))
-				and tabAccount.is_group=0
-				and tabAccount.`{searchfield}` LIKE %(txt)s
-				{condition} {get_match_cond(doctype)}
-			order by idx desc, name""",
-		{"txt": "%" + txt + "%", "company": filters.get("company", "")},
+	return (
+		qb.from_(acc)
+		.select(acc.name)
+		.where(Criterion.all(condition))
+		.orderby(acc.idx, order=Order.desc)
+		.orderby(acc.name)
+		.run()
 	)
 
 
@@ -686,26 +700,38 @@ def get_filtered_dimensions(doctype, txt, searchfield, start, page_len, filters,
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_expense_account(doctype, txt, searchfield, start, page_len, filters):
-	from erpnext.controllers.queries import get_match_cond
-
 	if not filters:
 		filters = {}
 
-	doctype = "Account"
-	condition = ""
-	if filters.get("company"):
-		condition += "and tabAccount.company = %(company)s"
+	dt = "Account"
 
-	return frappe.db.sql(
-		f"""select tabAccount.name from `tabAccount`
-		where (tabAccount.report_type = "Profit and Loss"
-				or tabAccount.account_type in ("Expense Account", "Fixed Asset", "Temporary", "Asset Received But Not Billed", "Capital Work in Progress"))
-			and tabAccount.is_group=0
-		    and tabAccount.disabled = 0
-			and tabAccount.{searchfield} LIKE %(txt)s
-			{condition} {get_match_cond(doctype)}""",
-		{"company": filters.get("company", ""), "txt": "%" + txt + "%"},
-	)
+	acc = qb.DocType(dt)
+	condition = [
+		(
+			acc.report_type.eq("Profit and Loss")
+			| acc.account_type.isin(
+				[
+					"Expense Account",
+					"Fixed Asset",
+					"Temporary",
+					"Asset Received But Not Billed",
+					"Capital Work in Progress",
+				]
+			)
+		),
+		acc.is_group.eq(0),
+		acc.disabled.eq(0),
+	]
+	if txt:
+		condition.append(acc.name.like(f"%{txt}%"))
+
+	if filters.get("company"):
+		condition.append(acc.company.eq(filters.get("company")))
+
+	user_perms = build_qb_match_conditions(dt)
+	condition.extend(user_perms)
+
+	return qb.from_(acc).select(acc.name).where(Criterion.all(condition)).run()
 
 
 @frappe.whitelist()

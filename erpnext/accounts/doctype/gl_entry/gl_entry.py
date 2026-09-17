@@ -131,18 +131,20 @@ class GLEntry(Document):
 
 		if not self.is_cancelled and not (self.party_type and self.party):
 			account_type = frappe.get_cached_value("Account", self.account, "account_type")
-			if account_type == "Receivable":
-				frappe.throw(
-					_("{0} {1}: Customer is required against Receivable account {2}").format(
-						self.voucher_type, self.voucher_no, self.account
+
+			if not frappe.flags.party_not_required:  # skipping validation if party is not required
+				if account_type == "Receivable":
+					frappe.throw(
+						_("{0} {1}: Customer is required against Receivable account {2}").format(
+							self.voucher_type, self.voucher_no, self.account
+						)
 					)
-				)
-			elif account_type == "Payable":
-				frappe.throw(
-					_("{0} {1}: Supplier is required against Payable account {2}").format(
-						self.voucher_type, self.voucher_no, self.account
+				elif account_type == "Payable":
+					frappe.throw(
+						_("{0} {1}: Supplier is required against Payable account {2}").format(
+							self.voucher_type, self.voucher_no, self.account
+						)
 					)
-				)
 
 		# Zero value transaction is not allowed
 		if not (
@@ -185,7 +187,6 @@ class GLEntry(Document):
 				account_type == "Profit and Loss"
 				and self.company == dimension.company
 				and dimension.mandatory_for_pl
-				and not dimension.disabled
 				and not self.is_cancelled
 			):
 				if not self.get(dimension.fieldname):
@@ -199,7 +200,6 @@ class GLEntry(Document):
 				account_type == "Balance Sheet"
 				and self.company == dimension.company
 				and dimension.mandatory_for_bs
-				and not dimension.disabled
 				and not self.is_cancelled
 			):
 				if not self.get(dimension.fieldname):
@@ -251,7 +251,7 @@ class GLEntry(Document):
 			)
 
 	def validate_cost_center(self):
-		if not self.cost_center:
+		if not self.cost_center or self.is_cancelled:
 			return
 
 		is_group, company = frappe.get_cached_value("Cost Center", self.cost_center, ["is_group", "company"])
@@ -311,7 +311,7 @@ def validate_balance_type(account, adv_adj=False):
 		if balance_must_be:
 			balance = frappe.db.sql(
 				"""select sum(debit) - sum(credit)
-				from `tabGL Entry` where account = %s""",
+				from `tabGL Entry` where is_cancelled = 0 and account = %s""",
 				account,
 			)[0][0]
 
@@ -418,7 +418,7 @@ def update_against_account(voucher_type, voucher_no):
 	if not entries:
 		return
 	company_currency = erpnext.get_company_currency(entries[0].company)
-	precision = get_field_precision(frappe.get_meta("GL Entry").get_field("debit"), company_currency)
+	precision = get_field_precision(frappe.get_meta("GL Entry").get_field("debit"), currency=company_currency)
 
 	accounts_debited, accounts_credited = [], []
 	for d in entries:

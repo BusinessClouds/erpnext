@@ -196,6 +196,9 @@ class PurchaseOrder(BuyingController):
 		self.set_has_unit_price_items()
 		self.flags.allow_zero_qty = self.has_unit_price_items
 
+		if self.is_subcontracted:
+			self.status_updater[0]["source_field"] = "fg_item_qty"
+
 	def validate(self):
 		super().validate()
 
@@ -644,9 +647,8 @@ class PurchaseOrder(BuyingController):
 		if not self.is_against_so():
 			return
 		for item in removed_items:
-			prev_ordered_qty = (
+			prev_ordered_qty = flt(
 				frappe.get_cached_value("Sales Order Item", item.get("sales_order_item"), "ordered_qty")
-				or 0.0
 			)
 
 			frappe.db.set_value(
@@ -724,7 +726,12 @@ def set_missing_values(source, target):
 
 
 @frappe.whitelist()
-def make_purchase_receipt(source_name, target_doc=None):
+def make_purchase_receipt(source_name, target_doc=None, args=None):
+	if args is None:
+		args = {}
+	if isinstance(args, str):
+		args = json.loads(args)
+
 	has_unit_price_items = frappe.db.get_value("Purchase Order", source_name, "has_unit_price_items")
 
 	def is_unit_price_row(source):
@@ -737,6 +744,11 @@ def make_purchase_receipt(source_name, target_doc=None):
 		target.base_amount = (
 			(flt(obj.qty) - flt(obj.received_qty)) * flt(obj.rate) * flt(source_parent.conversion_rate)
 		)
+
+	def select_item(d):
+		filtered_items = args.get("filtered_children", [])
+		child_filter = d.name in filtered_items if filtered_items else True
+		return child_filter
 
 	doc = get_mapped_doc(
 		"Purchase Order",
@@ -765,7 +777,8 @@ def make_purchase_receipt(source_name, target_doc=None):
 				"condition": lambda doc: (
 					True if is_unit_price_row(doc) else abs(doc.received_qty) < abs(doc.qty)
 				)
-				and doc.delivered_by_supplier != 1,
+				and doc.delivered_by_supplier != 1
+				and select_item(doc),
 			},
 			"Purchase Taxes and Charges": {"doctype": "Purchase Taxes and Charges", "reset_value": True},
 		},
@@ -777,14 +790,14 @@ def make_purchase_receipt(source_name, target_doc=None):
 
 
 @frappe.whitelist()
-def make_purchase_invoice(source_name, target_doc=None):
-	return get_mapped_purchase_invoice(source_name, target_doc)
+def make_purchase_invoice(source_name, target_doc=None, args=None):
+	return get_mapped_purchase_invoice(source_name, target_doc, args=args)
 
 
 @frappe.whitelist()
 def make_purchase_invoice_from_portal(purchase_order_name):
 	doc = get_mapped_purchase_invoice(purchase_order_name, ignore_permissions=True)
-	if doc.contact_email != frappe.session.user:
+	if frappe.session.user not in frappe.get_all("Portal User", {"parent": doc.supplier}, pluck="user"):
 		frappe.throw(_("Not Permitted"), frappe.PermissionError)
 	doc.save()
 	frappe.db.commit()
@@ -792,7 +805,12 @@ def make_purchase_invoice_from_portal(purchase_order_name):
 	frappe.response.location = "/purchase-invoices/" + doc.name
 
 
-def get_mapped_purchase_invoice(source_name, target_doc=None, ignore_permissions=False):
+def get_mapped_purchase_invoice(source_name, target_doc=None, ignore_permissions=False, args=None):
+	if args is None:
+		args = {}
+	if isinstance(args, str):
+		args = json.loads(args)
+
 	def postprocess(source, target):
 		target.flags.ignore_permissions = ignore_permissions
 		set_missing_values(source, target)
@@ -832,6 +850,11 @@ def get_mapped_purchase_invoice(source_name, target_doc=None, ignore_permissions
 			or item_group.get("buying_cost_center")
 		)
 
+	def select_item(d):
+		filtered_items = args.get("filtered_children", [])
+		child_filter = d.name in filtered_items if filtered_items else True
+		return child_filter
+
 	fields = {
 		"Purchase Order": {
 			"doctype": "Purchase Invoice",
@@ -854,7 +877,8 @@ def get_mapped_purchase_invoice(source_name, target_doc=None, ignore_permissions
 				"wip_composite_asset": "wip_composite_asset",
 			},
 			"postprocess": update_item,
-			"condition": lambda doc: (doc.base_amount == 0 or abs(doc.billed_amt) < abs(doc.amount)),
+			"condition": lambda doc: (doc.base_amount == 0 or abs(doc.billed_amt) < abs(doc.amount))
+			and select_item(doc),
 		},
 		"Purchase Taxes and Charges": {"doctype": "Purchase Taxes and Charges", "reset_value": True},
 	}
@@ -888,6 +912,8 @@ def get_list_context(context=None):
 
 @frappe.whitelist()
 def update_status(status, name):
+	frappe.has_permission("Purchase Order", "submit", name, throw=True)
+
 	po = frappe.get_doc("Purchase Order", name)
 	po.update_status(status)
 	po.update_delivered_qty_in_sales_order()

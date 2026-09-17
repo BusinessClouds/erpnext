@@ -243,10 +243,7 @@ class FIFOSlots:
 		                consumed/updated and maintained via FIFO. **
 		}
 		"""
-
-		from erpnext.stock.doctype.serial_and_batch_bundle.test_serial_and_batch_bundle import (
-			get_serial_nos_from_bundle,
-		)
+		from erpnext.stock.serial_batch_bundle import get_serial_nos_from_bundle
 
 		stock_ledger_entries = self.sle
 
@@ -271,8 +268,9 @@ class FIFOSlots:
 					if bundle_wise_serial_nos:
 						serial_nos = bundle_wise_serial_nos.get(d.serial_and_batch_bundle) or []
 					else:
-						serial_nos = get_serial_nos_from_bundle(d.serial_and_batch_bundle) or []
+						serial_nos = sorted(get_serial_nos_from_bundle(d.serial_and_batch_bundle)) or []
 
+				serial_nos = self.uppercase_serial_nos(serial_nos)
 				if d.actual_qty > 0:
 					self.__compute_incoming_stock(d, fifo_queue, transferred_item_key, serial_nos)
 				else:
@@ -288,6 +286,10 @@ class FIFOSlots:
 			self.item_details = self.__aggregate_details_by_item(self.item_details)
 
 		return self.item_details
+
+	def uppercase_serial_nos(self, serial_nos):
+		"Convert serial nos to uppercase for uniformity."
+		return [sn.upper() for sn in serial_nos]
 
 	def __init_key_stores(self, row: dict) -> tuple:
 		"Initialise keys and FIFO Queue."

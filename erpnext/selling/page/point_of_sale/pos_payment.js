@@ -342,7 +342,6 @@ erpnext.PointOfSale.Payment = class {
 	}
 
 	render_payment_section() {
-		this.remove_grand_total_from_default_mop();
 		this.render_payment_mode_dom();
 		this.make_invoice_fields_control();
 		this.update_totals_section();
@@ -394,6 +393,10 @@ erpnext.PointOfSale.Payment = class {
 		const doc = this.events.get_frm().doc;
 		const payments = doc.payments;
 		const currency = doc.currency;
+
+		if (!this.$payment_modes.is(":visible")) {
+			return;
+		}
 
 		this.$payment_modes.html(
 			`${payments
@@ -612,6 +615,10 @@ erpnext.PointOfSale.Payment = class {
 		const change = doc.change_amount || remaining <= 0 ? -1 * remaining : undefined;
 		const currency = doc.currency;
 		const label = __("Change Amount");
+
+		if (!this.$totals.is(":visible")) {
+			return;
+		}
 
 		this.$totals.html(
 			`<div class="col">

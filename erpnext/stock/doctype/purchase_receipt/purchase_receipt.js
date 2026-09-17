@@ -17,13 +17,6 @@ frappe.ui.form.on("Purchase Receipt", {
 			"Landed Cost Voucher": "Landed Cost Voucher",
 		};
 
-		frm.set_query("expense_account", "items", function () {
-			return {
-				query: "erpnext.controllers.queries.get_expense_account",
-				filters: { company: frm.doc.company },
-			};
-		});
-
 		frm.set_query("wip_composite_asset", "items", function () {
 			return {
 				filters: { is_composite_asset: 1, docstatus: 0 },
@@ -33,15 +26,6 @@ frappe.ui.form.on("Purchase Receipt", {
 		frm.set_query("taxes_and_charges", function () {
 			return {
 				filters: { company: frm.doc.company },
-			};
-		});
-
-		frm.set_query("subcontracting_receipt", function () {
-			return {
-				filters: {
-					docstatus: 1,
-					supplier: frm.doc.supplier,
-				},
 			};
 		});
 	},
@@ -150,7 +134,11 @@ frappe.ui.form.on("Purchase Receipt", {
 							docstatus: 1,
 							per_received: ["<", 100],
 							company: frm.doc.company,
+							update_stock: 0,
 						},
+						allow_child_item_selection: true,
+						child_fieldname: "items",
+						child_columns: ["item_code", "item_name", "qty", "received_qty"],
 					});
 				},
 				__("Get Items From")
@@ -163,24 +151,6 @@ frappe.ui.form.on("Purchase Receipt", {
 		erpnext.accounts.dimensions.update_dimension(frm, frm.doctype);
 	},
 
-	subcontracting_receipt: (frm) => {
-		if (
-			frm.doc.is_subcontracted === 1 &&
-			frm.doc.is_old_subcontracting_flow === 0 &&
-			frm.doc.subcontracting_receipt
-		) {
-			frm.set_value("items", null);
-
-			erpnext.utils.map_current_doc({
-				method: "erpnext.subcontracting.doctype.subcontracting_receipt.subcontracting_receipt.make_purchase_receipt",
-				source_name: frm.doc.subcontracting_receipt,
-				target_doc: frm,
-				freeze: true,
-				freeze_message: __("Mapping Purchase Receipt ..."),
-			});
-		}
-	},
-
 	toggle_display_account_head: function (frm) {
 		var enabled = erpnext.is_perpetual_inventory_enabled(frm.doc.company);
 		frm.fields_dict["items"].grid.set_column_disp(["cost_center"], enabled);
@@ -191,8 +161,19 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 	erpnext.buying.BuyingController
 ) {
 	setup(doc) {
+		this.setup_accounting_dimension_triggers();
 		this.setup_posting_date_time_check();
 		super.setup(doc);
+
+		this.frm.set_query("expense_account", "items", () => {
+			return {
+				query: "erpnext.controllers.queries.get_expense_account",
+				filters: {
+					company: this.frm.doc.company,
+					disabled: 0,
+				},
+			};
+		});
 	}
 
 	refresh() {
@@ -255,6 +236,9 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 								per_received: ["<", 99.99],
 								company: me.frm.doc.company,
 							},
+							allow_child_item_selection: true,
+							child_fieldname: "items",
+							child_columns: ["item_code", "item_name", "qty", "received_qty"],
 						});
 					},
 					__("Get Items From")
@@ -380,6 +364,15 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 
 	apply_putaway_rule() {
 		if (this.frm.doc.apply_putaway_rule) erpnext.apply_putaway_rule(this.frm);
+	}
+
+	items_add(doc, cdt, cdn) {
+		const row = frappe.get_doc(cdt, cdn);
+		this.frm.script_manager.copy_from_first_row("items", row, [
+			"expense_account",
+			"cost_center",
+			"project",
+		]);
 	}
 };
 

@@ -11,7 +11,16 @@ from frappe.cache_manager import clear_defaults_cache
 from frappe.contacts.address_and_contact import load_address_and_contact
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.desk.page.setup_wizard.setup_wizard import make_records
-from frappe.utils import cint, formatdate, get_link_to_form, get_timestamp, today
+from frappe.utils import (
+	add_months,
+	cint,
+	formatdate,
+	get_first_day,
+	get_last_day,
+	get_link_to_form,
+	get_timestamp,
+	today,
+)
 from frappe.utils.nestedset import NestedSet, rebuild_tree
 
 from erpnext.accounts.doctype.account.account import get_account_currency
@@ -66,6 +75,7 @@ class Company(NestedSet):
 		default_payable_account: DF.Link | None
 		default_provisional_account: DF.Link | None
 		default_receivable_account: DF.Link | None
+		default_sales_contact: DF.Link | None
 		default_selling_terms: DF.Link | None
 		default_warehouse_for_sales_return: DF.Link | None
 		depreciation_cost_center: DF.Link | None
@@ -181,11 +191,35 @@ class Company(NestedSet):
 			["Stock Received But Not Billed Account", "stock_received_but_not_billed"],
 			["Stock Adjustment Account", "stock_adjustment_account"],
 			["Expense Included In Valuation Account", "expenses_included_in_valuation"],
+			["Write Off Account", "write_off_account"],
+			["Default Payment Discount Account", "default_discount_account"],
+			["Unrealized Profit / Loss Account", "unrealized_profit_loss_account"],
+			["Exchange Gain / Loss Account", "exchange_gain_loss_account"],
+			["Unrealized Exchange Gain / Loss Account", "unrealized_exchange_gain_loss_account"],
+			["Round Off Account", "round_off_account"],
+			["Default Deferred Revenue Account", "default_deferred_revenue_account"],
+			["Default Deferred Expense Account", "default_deferred_expense_account"],
+			["Accumulated Depreciation Account", "accumulated_depreciation_account"],
+			["Depreciation Expense Account", "depreciation_expense_account"],
+			["Gain/Loss Account on Asset Disposal", "disposal_account"],
 		]
 
 		for account in accounts:
 			if self.get(account[1]):
-				for_company = frappe.db.get_value("Account", self.get(account[1]), "company")
+				for_company, is_group, disabled = frappe.db.get_value(
+					"Account", self.get(account[1]), ["company", "is_group", "disabled"]
+				)
+
+				if disabled:
+					frappe.throw(_("Account {0} is disabled.").format(frappe.bold(self.get(account[1]))))
+
+				if is_group:
+					frappe.throw(
+						_("{0}: {1} is a group account.").format(
+							frappe.bold(account[0]), frappe.bold(self.get(account[1]))
+						)
+					)
+
 				if for_company != self.name:
 					frappe.throw(
 						_("Account {0} does not belong to company: {1}").format(
@@ -737,39 +771,49 @@ def install_country_fixtures(company, country):
 
 
 def update_company_current_month_sales(company):
-	current_month_year = formatdate(today(), "MM-yyyy")
+	"""Update Company's Total Monthly Sales.
 
-	results = frappe.db.sql(
-		f"""
-		SELECT
-			SUM(base_grand_total) AS total,
-			DATE_FORMAT(`posting_date`, '%m-%Y') AS month_year
-		FROM
-			`tabSales Invoice`
-		WHERE
-			DATE_FORMAT(`posting_date`, '%m-%Y') = '{current_month_year}'
-			AND docstatus = 1
-			AND company = {frappe.db.escape(company)}
-		GROUP BY
-			month_year
-	""",
-		as_dict=True,
+	Postgres compatibility:
+	- Avoid MariaDB-only DATE_FORMAT().
+	- Use a date range for the current month instead (portable + index-friendly).
+	"""
+
+	# Local imports so you don't have to touch file-level imports
+	from frappe.query_builder.functions import Sum
+
+	start_date = get_first_day(today())
+	end_date = get_last_day(today())
+
+	si = frappe.qb.DocType("Sales Invoice")
+
+	total_monthly_sales = (
+		frappe.qb.from_(si)
+		.select(Sum(si.base_grand_total))
+		.where(
+			(si.docstatus == 1)
+			& (si.company == company)
+			& (si.posting_date >= start_date)
+			& (si.posting_date <= end_date)
+		)
+	).run(pluck=True)[0] or 0
+
+	# Fieldname in standard ERPNext is `total_monthly_sales`
+	frappe.db.set_value(
+		"Company",
+		company,
+		"total_monthly_sales",
+		total_monthly_sales,
+		update_modified=False,
 	)
-
-	monthly_total = results[0]["total"] if len(results) > 0 else 0
-
-	frappe.db.set_value("Company", company, "total_monthly_sales", monthly_total)
 
 
 def update_company_monthly_sales(company):
 	"""Cache past year monthly sales of every company based on sales invoices"""
-	import json
-
 	from frappe.utils.goal import get_monthly_results
 
-	filter_str = f"company = {frappe.db.escape(company)} and status != 'Draft' and docstatus=1"
+	filter_dict = {"company": company, "status": ["!=", "Draft"], "docstatus": 1}
 	month_to_value_dict = get_monthly_results(
-		"Sales Invoice", "base_grand_total", "posting_date", filter_str, "sum"
+		"Sales Invoice", "base_grand_total", "posting_date", filter_dict, "sum"
 	)
 
 	frappe.db.set_value("Company", company, "sales_monthly_history", json.dumps(month_to_value_dict))

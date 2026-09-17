@@ -303,6 +303,7 @@ erpnext.buying.PurchaseOrderController = class PurchaseOrderController extends (
 	erpnext.buying.BuyingController
 ) {
 	setup() {
+		this.setup_accounting_dimension_triggers();
 		this.frm.custom_make_buttons = {
 			"Purchase Receipt": "Purchase Receipt",
 			"Purchase Invoice": "Purchase Invoice",
@@ -463,8 +464,8 @@ erpnext.buying.PurchaseOrderController = class PurchaseOrderController extends (
 						if (internal) {
 							let button_label =
 								me.frm.doc.company === me.frm.doc.represents_company
-									? "Internal Sales Order"
-									: "Inter Company Sales Order";
+									? __("Internal Sales Order")
+									: __("Inter Company Sales Order");
 
 							me.frm.add_custom_button(
 								button_label,
@@ -599,6 +600,9 @@ erpnext.buying.PurchaseOrderController = class PurchaseOrderController extends (
 						docstatus: 1,
 						status: ["not in", ["Stopped", "Expired"]],
 					},
+					allow_child_item_selection: true,
+					child_fieldname: "items",
+					child_columns: ["item_code", "item_name", "qty", "rate", "amount"],
 				});
 			},
 			__("Get Items From")
@@ -763,10 +767,6 @@ erpnext.buying.PurchaseOrderController = class PurchaseOrderController extends (
 	}
 
 	items_on_form_rendered() {
-		set_schedule_date(this.frm);
-	}
-
-	schedule_date() {
 		set_schedule_date(this.frm);
 	}
 };

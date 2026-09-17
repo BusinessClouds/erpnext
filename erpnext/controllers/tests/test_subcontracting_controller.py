@@ -778,9 +778,8 @@ class TestSubcontractingController(FrappeTestCase):
 				row.serial_no = "ABC"
 				break
 
-		bundle.save()
+		self.assertRaises(frappe.ValidationError, bundle.save)
 
-		self.assertRaises(frappe.ValidationError, scr1.save)
 		bundle.load_from_db()
 		for row in bundle.entries:
 			if row.idx == 1:
@@ -1308,6 +1307,7 @@ def make_subcontracted_items():
 		"Subcontracted Item SA7": {},
 		"Subcontracted Item SA8": {},
 		"Subcontracted Item SA9": {"stock_uom": "Litre"},
+		"Subcontracted Item SA10": {},
 	}
 
 	for item, properties in sub_contracted_items.items():
@@ -1329,6 +1329,7 @@ def make_raw_materials():
 		"Subcontracted SRM Item 5": {"has_serial_no": 1, "serial_no_series": "SRIID.####"},
 		"Subcontracted SRM Item 8": {},
 		"Subcontracted SRM Item 9": {"stock_uom": "Litre"},
+		"Subcontracted SRM Item 10": {},
 	}
 
 	for item, properties in raw_materials.items():
@@ -1357,6 +1358,7 @@ def make_service_items():
 		"Subcontracted Service Item 7": {},
 		"Subcontracted Service Item 8": {},
 		"Subcontracted Service Item 9": {},
+		"Subcontracted Service Item 10": {},
 	}
 
 	for item, properties in service_items.items():
@@ -1381,6 +1383,7 @@ def make_bom_for_subcontracted_items():
 		"Subcontracted Item SA6": ["Subcontracted SRM Item 3"],
 		"Subcontracted Item SA7": ["Subcontracted SRM Item 1"],
 		"Subcontracted Item SA8": ["Subcontracted SRM Item 8"],
+		"Subcontracted Item SA10": ["Subcontracted SRM Item 10"],
 	}
 
 	for item_code, raw_materials in boms.items():

@@ -15,6 +15,7 @@ from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 	get_accounting_dimensions,
 	get_dimension_with_children,
 )
+from erpnext.accounts.report.financial_statements import get_cost_centers_with_children
 from erpnext.accounts.utils import (
 	build_qb_match_conditions,
 	get_advance_payment_doctypes,
@@ -664,7 +665,16 @@ class ReceivablePayableReport:
 		invoiced = d.base_payment_amount
 		paid_amount = d.base_paid_amount
 
-		if company_currency == d.party_account_currency or self.filters.get("in_party_currency"):
+		in_party_currency = self.filters.get("in_party_currency")
+		# company, billing, and party account currencies are the same
+		if company_currency == d.currency and company_currency == d.party_account_currency:
+			in_party_currency = False
+
+		# When filtered by party currency and the billing currency not matches the party account currency
+		if in_party_currency and d.currency != d.party_account_currency:
+			in_party_currency = False
+
+		if in_party_currency:
 			invoiced = d.payment_amount
 			paid_amount = d.paid_amount
 
@@ -974,6 +984,7 @@ class ReceivablePayableReport:
 
 			if self.account_type == "Receivable":
 				self.add_customer_filters()
+				self.exclude_employee_transaction()
 
 			elif self.account_type == "Payable":
 				self.add_supplier_filters()
@@ -984,11 +995,7 @@ class ReceivablePayableReport:
 		self.add_accounting_dimensions_filters()
 
 	def get_cost_center_conditions(self):
-		lft, rgt = frappe.db.get_value("Cost Center", self.filters.cost_center, ["lft", "rgt"])
-		cost_center_list = [
-			center.name
-			for center in frappe.get_list("Cost Center", filters={"lft": (">=", lft), "rgt": ("<=", rgt)})
-		]
+		cost_center_list = get_cost_centers_with_children(self.filters.cost_center)
 		self.qb_selection_filter.append(self.ple.cost_center.isin(cost_center_list))
 
 	def add_common_filters(self):
@@ -1022,9 +1029,8 @@ class ReceivablePayableReport:
 		self,
 	):
 		self.customer = qb.DocType("Customer")
-
 		if self.filters.get("customer_group"):
-			groups = get_customer_group_with_children(self.filters.customer_group)
+			groups = get_party_group_with_children("Customer", self.filters.customer_group)
 			customers = (
 				qb.from_(self.customer)
 				.select(self.customer.name)
@@ -1036,13 +1042,17 @@ class ReceivablePayableReport:
 			self.get_hierarchical_filters("Territory", "territory")
 
 		if self.filters.get("payment_terms_template"):
-			self.qb_selection_filter.append(
-				self.ple.party.isin(
-					qb.from_(self.customer)
-					.select(self.customer.name)
-					.where(self.customer.payment_terms == self.filters.get("payment_terms_template"))
-				)
+			customer_ptt = self.ple.party.isin(
+				qb.from_(self.customer)
+				.select(self.customer.name)
+				.where(self.customer.payment_terms == self.filters.get("payment_terms_template"))
 			)
+
+			si_ptt = self.add_payment_term_template_filters("Sales Invoice")
+
+			sales_ptt = self.ple.against_voucher_no.isin(si_ptt)
+
+			self.qb_selection_filter.append(Criterion.any([customer_ptt, sales_ptt]))
 
 		if self.filters.get("sales_partner"):
 			self.qb_selection_filter.append(
@@ -1052,6 +1062,9 @@ class ReceivablePayableReport:
 					.where(self.customer.default_sales_partner == self.filters.get("sales_partner"))
 				)
 			)
+
+	def exclude_employee_transaction(self):
+		self.qb_selection_filter.append(self.ple.party_type != "Employee")
 
 	def add_supplier_filters(self):
 		supplier = qb.DocType("Supplier")
@@ -1065,13 +1078,52 @@ class ReceivablePayableReport:
 			)
 
 		if self.filters.get("payment_terms_template"):
-			self.qb_selection_filter.append(
-				self.ple.party.isin(
-					qb.from_(supplier)
-					.select(supplier.name)
-					.where(supplier.payment_terms == self.filters.get("supplier_group"))
-				)
+			supplier_ptt = self.ple.party.isin(
+				qb.from_(supplier)
+				.select(supplier.name)
+				.where(supplier.payment_terms == self.filters.get("payment_terms_template"))
 			)
+
+			pi_ptt = self.add_payment_term_template_filters("Purchase Invoice")
+
+			purchase_ptt = self.ple.against_voucher_no.isin(pi_ptt)
+
+			self.qb_selection_filter.append(Criterion.any([supplier_ptt, purchase_ptt]))
+
+	def add_payment_term_template_filters(self, dtype):
+		voucher_type = qb.DocType(dtype)
+
+		ptt = (
+			qb.from_(voucher_type)
+			.select(voucher_type.name)
+			.where(voucher_type.payment_terms_template == self.filters.get("payment_terms_template"))
+			.where(voucher_type.company == self.filters.company)
+		)
+
+		if dtype == "Purchase Invoice":
+			party = "Supplier"
+			party_group_type = "supplier_group"
+			acc_type = "credit_to"
+		else:
+			party = "Customer"
+			party_group_type = "customer_group"
+			acc_type = "debit_to"
+
+		if self.filters.get(party_group_type):
+			party_groups = get_party_group_with_children(party, self.filters.get(party_group_type))
+			ptt = ptt.where((voucher_type[party_group_type]).isin(party_groups))
+
+		if self.filters.party:
+			ptt = ptt.where((voucher_type[party.lower()]).isin(self.filters.party))
+
+		if self.filters.cost_center:
+			cost_centers = get_cost_centers_with_children(self.filters.cost_center)
+			ptt = ptt.where(voucher_type.cost_center.isin(cost_centers))
+
+		if self.filters.party_account:
+			ptt = ptt.where(voucher_type[acc_type] == self.filters.party_account)
+
+		return ptt
 
 	def get_hierarchical_filters(self, doctype, key):
 		lft, rgt = frappe.db.get_value(doctype, self.filters.get(key), ["lft", "rgt"])
@@ -1266,7 +1318,7 @@ class ReceivablePayableReport:
 	def setup_ageing_columns(self):
 		# for charts
 		self.ageing_column_labels = []
-		ranges = [*self.ranges, "Above"]
+		ranges = [*self.ranges, _("Above")]
 
 		prev_range_value = 0
 		for idx, curr_range_value in enumerate(ranges):
@@ -1310,20 +1362,26 @@ class ReceivablePayableReport:
 		self.err_journals = [x[0] for x in results] if results else []
 
 
-def get_customer_group_with_children(customer_groups):
-	if not isinstance(customer_groups, list):
-		customer_groups = [d.strip() for d in customer_groups.strip().split(",") if d]
+def get_party_group_with_children(party, party_groups):
+	if party not in ("Customer", "Supplier"):
+		return []
 
-	all_customer_groups = []
-	for d in customer_groups:
-		if frappe.db.exists("Customer Group", d):
-			lft, rgt = frappe.db.get_value("Customer Group", d, ["lft", "rgt"])
-			children = frappe.get_all("Customer Group", filters={"lft": [">=", lft], "rgt": ["<=", rgt]})
-			all_customer_groups += [c.name for c in children]
+	group_dtype = f"{party} Group"
+	if not isinstance(party_groups, list):
+		party_groups = [d.strip() for d in party_groups.strip().split(",") if d]
+
+	all_party_groups = []
+	for d in party_groups:
+		if frappe.db.exists(group_dtype, d):
+			lft, rgt = frappe.db.get_value(group_dtype, d, ["lft", "rgt"])
+			children = frappe.get_all(
+				group_dtype, filters={"lft": [">=", lft], "rgt": ["<=", rgt]}, pluck="name"
+			)
+			all_party_groups += children
 		else:
-			frappe.throw(_("Customer Group: {0} does not exist").format(d))
+			frappe.throw(_("{0}: {1} does not exist").format(group_dtype, d))
 
-	return list(set(all_customer_groups))
+	return list(set(all_party_groups))
 
 
 class InitSQLProceduresForAR:

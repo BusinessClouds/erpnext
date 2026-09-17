@@ -138,7 +138,7 @@ class InventoryDimension(Document):
 			self.source_fieldname = scrub(self.dimension_name)
 
 		if not self.target_fieldname:
-			self.target_fieldname = scrub(self.reference_document)
+			self.target_fieldname = scrub(self.dimension_name)
 
 	def on_update(self):
 		self.add_custom_fields()
@@ -196,8 +196,7 @@ class InventoryDimension(Document):
 					options=self.reference_document,
 					label=_("Rejected " + self.dimension_name),
 					search_index=1,
-					reqd=self.reqd,
-					mandatory_depends_on=self.mandatory_depends_on,
+					mandatory_depends_on="eval:doc.rejected_qty > 0",
 				)
 			)
 

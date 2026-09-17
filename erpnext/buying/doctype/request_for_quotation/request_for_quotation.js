@@ -34,15 +34,6 @@ frappe.ui.form.on("Request for Quotation", {
 		});
 	},
 
-	onload: function (frm) {
-		if (!frm.doc.message_for_supplier) {
-			frm.set_value(
-				"message_for_supplier",
-				__("Please supply the specified items at the best possible rates")
-			);
-		}
-	},
-
 	refresh: function (frm, cdt, cdn) {
 		if (frm.doc.docstatus === 1) {
 			frm.add_custom_button(
@@ -174,14 +165,10 @@ frappe.ui.form.on("Request for Quotation", {
 	},
 
 	show_supplier_quotation_comparison(frm) {
-		const today = new Date();
-		const oneMonthAgo = new Date(today);
-		oneMonthAgo.setMonth(today.getMonth() - 1);
-
 		frappe.route_options = {
 			company: frm.doc.company,
-			from_date: moment(oneMonthAgo).format("YYYY-MM-DD"),
-			to_date: moment(today).format("YYYY-MM-DD"),
+			from_date: moment(frm.doc.transaction_date).format("YYYY-MM-DD"),
+			to_date: moment(new Date()).format("YYYY-MM-DD"),
 			request_for_quotation: frm.doc.name,
 		};
 		frappe.set_route("query-report", "Supplier Quotation Comparison");
@@ -247,6 +234,32 @@ frappe.ui.form.on("Request for Quotation", {
 			});
 		}
 		refresh_field("items");
+	},
+
+	email_template(frm) {
+		if (frm.doc.email_template) {
+			frappe.db
+				.get_value("Email Template", frm.doc.email_template, [
+					"use_html",
+					"response",
+					"response_html",
+					"subject",
+				])
+				.then((r) => {
+					if (r.message.use_html) {
+						frm.set_value({
+							mfs_html: r.message.response_html,
+							use_html: 1,
+						});
+					} else {
+						frm.set_value({
+							message_for_supplier: r.message.response,
+							use_html: 0,
+						});
+					}
+					frm.set_value("subject", r.message.subject);
+				});
+		}
 	},
 	preview: (frm) => {
 		let dialog = new frappe.ui.Dialog({
@@ -555,7 +568,10 @@ erpnext.buying.RequestforQuotationController = class RequestforQuotationControll
 							doctype: "Supplier",
 							order_by: "name",
 							fields: ["name"],
-							filters: [["Supplier", "supplier_group", "=", args.supplier_group]],
+							filters: [
+								["Supplier", "supplier_group", "=", args.supplier_group],
+								["disabled", "=", 0],
+							],
 						},
 						callback: load_suppliers,
 					});

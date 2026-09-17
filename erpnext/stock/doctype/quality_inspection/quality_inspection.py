@@ -274,7 +274,9 @@ class QualityInspection(Document):
 
 	def set_status_based_on_acceptance_values(self, reading):
 		if not cint(reading.numeric):
-			result = reading.get("reading_value") == reading.get("value")
+			reading_value = reading.get("reading_value") or ""
+			value = reading.get("value") or ""
+			result = reading_value == value
 		else:
 			# numeric readings
 			result = self.min_max_criteria_passed(reading)
@@ -283,9 +285,11 @@ class QualityInspection(Document):
 
 	def min_max_criteria_passed(self, reading):
 		"""Determine whether all readings fall in the acceptable range."""
+		has_reading = False
 		for i in range(1, 11):
 			reading_value = reading.get("reading_" + str(i))
 			if reading_value is not None and reading_value.strip():
+				has_reading = True
 				result = (
 					flt(reading.get("min_value"))
 					<= parse_float(reading_value)
@@ -293,7 +297,7 @@ class QualityInspection(Document):
 				)
 				if not result:
 					return False
-		return True
+		return has_reading
 
 	def set_status_based_on_acceptance_formula(self, reading):
 		if not reading.acceptance_formula:

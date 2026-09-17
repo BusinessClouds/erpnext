@@ -55,6 +55,14 @@ def validate_filters(filters):
 	if filters.get("based_on") == filters.get("group_by"):
 		frappe.throw(_("'Based On' and 'Group By' can not be same"))
 
+	if filters.get("period_based_on") and filters.period_based_on not in ["bill_date", "posting_date"]:
+		frappe.throw(
+			msg=_("{0} can be either {1} or {2}.").format(
+				frappe.bold("Period based On"), frappe.bold("Posting Date"), frappe.bold("Billing Date")
+			),
+			title=_("Invalid Filter"),
+		)
+
 
 def get_data(filters, conditions):
 	data = []
@@ -191,6 +199,9 @@ def get_data(filters, conditions):
 					des[j + inc] = row1[0][j]
 
 				data.append(des)
+
+		total_row = calculate_total_row(data1, conditions["columns"])
+		data.append(total_row)
 	else:
 		data = frappe.db.sql(
 			""" select {} from `tab{}` t1, `tab{} Item` t2 {}
@@ -214,7 +225,30 @@ def get_data(filters, conditions):
 			as_list=1,
 		)
 
+		total_row = calculate_total_row(data, conditions["columns"])
+		data.append(total_row)
+
 	return data
+
+
+def calculate_total_row(data, columns):
+	def wrap_in_quotes(label):
+		return f"'{label}'"
+
+	total_values = {}
+	for i, col in enumerate(columns):
+		if "Float" in col or "Currency/currency" in col:
+			total_values[i] = 0
+
+	for row in data:
+		for i in total_values.keys():
+			total_values[i] += row[i] if row[i] is not None else 0
+
+	total_row = [wrap_in_quotes(_("Total"))]
+	for i in range(1, len(columns)):
+		total_row.append(total_values.get(i, None))
+
+	return total_row
 
 
 def get_mon(dt):

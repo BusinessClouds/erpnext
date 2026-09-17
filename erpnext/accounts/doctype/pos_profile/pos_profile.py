@@ -61,7 +61,6 @@ class POSProfile(Document):
 		tax_category: DF.Link | None
 		taxes_and_charges: DF.Link | None
 		tc_name: DF.Link | None
-		update_stock: DF.Check
 		validate_stock_on_save: DF.Check
 		warehouse: DF.Link
 		write_off_account: DF.Link
@@ -70,6 +69,7 @@ class POSProfile(Document):
 	# end: auto-generated types
 
 	def validate(self):
+		self.validate_disabled()
 		self.validate_default_profile()
 		self.validate_all_link_fields()
 		self.validate_duplicate_groups()
@@ -93,6 +93,21 @@ class POSProfile(Document):
 					),
 					title=_("Mandatory Accounting Dimension"),
 				)
+
+	def validate_disabled(self):
+		old_doc = self.get_doc_before_save()
+
+		if (
+			old_doc
+			and self.disabled
+			and old_doc.disabled != self.disabled
+			and frappe.db.exists("POS Opening Entry", {"pos_profile": self.name, "status": "Open"})
+		):
+			frappe.throw(
+				_("POS Profile {0} cannot be disabled as there are ongoing POS sessions.").format(
+					frappe.bold(self.name)
+				)
+			)
 
 	def validate_default_profile(self):
 		for row in self.applicable_for_users:

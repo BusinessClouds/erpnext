@@ -1,4 +1,5 @@
 import datetime
+import json
 from collections import defaultdict
 
 import frappe
@@ -6,15 +7,16 @@ from frappe.query_builder.functions import CombineDatetime, Sum
 from frappe.utils import flt, nowtime
 from frappe.utils.deprecations import deprecated
 from pypika import Order
+from pypika.functions import Coalesce
 
 
 class DeprecatedSerialNoValuation:
 	@deprecated
 	def calculate_stock_value_from_deprecarated_ledgers(self):
-		if not has_sle_for_serial_nos(self.sle.item_code):
-			return
+		serial_nos = []
+		if hasattr(self, "old_serial_nos"):
+			serial_nos = self.old_serial_nos
 
-		serial_nos = self.get_filterd_serial_nos()
 		if not serial_nos:
 			return
 
@@ -23,17 +25,6 @@ class DeprecatedSerialNoValuation:
 			stock_value_change = self.get_incoming_value_for_serial_nos(serial_nos)
 
 		self.stock_value_change += flt(stock_value_change)
-
-	def get_filterd_serial_nos(self):
-		serial_nos = []
-		non_filtered_serial_nos = self.get_serial_nos()
-
-		# If the serial no inwarded using the Serial and Batch Bundle, then the serial no should not be considered
-		for serial_no in non_filtered_serial_nos:
-			if serial_no and serial_no not in self.serial_no_incoming_rate:
-				serial_nos.append(serial_no)
-
-		return serial_nos
 
 	@deprecated
 	def get_incoming_value_for_serial_nos(self, serial_nos):
@@ -78,20 +69,6 @@ class DeprecatedSerialNoValuation:
 				incoming_values += self.serial_no_incoming_rate[serial_no]
 
 		return incoming_values
-
-
-@frappe.request_cache
-def has_sle_for_serial_nos(item_code):
-	serial_nos = frappe.db.get_all(
-		"Stock Ledger Entry",
-		fields=["name"],
-		filters={"serial_no": ("is", "set"), "is_cancelled": 0, "item_code": item_code},
-		limit=1,
-	)
-	if serial_nos:
-		return True
-
-	return False
 
 
 class DeprecatedBatchNoValuation:
@@ -196,7 +173,16 @@ class DeprecatedBatchNoValuation:
 
 	@deprecated
 	def set_balance_value_for_non_batchwise_valuation_batches(self):
-		self.last_sle = self.get_last_sle_for_non_batch()
+		if hasattr(self, "prev_sle"):
+			self.last_sle = self.prev_sle
+		else:
+			self.last_sle = self.get_last_sle_for_non_batch()
+
+		if self.last_sle and self.last_sle.stock_queue:
+			self.stock_queue = self.last_sle.stock_queue
+			if isinstance(self.stock_queue, str):
+				self.stock_queue = json.loads(self.stock_queue) or []
+
 		self.set_balance_value_from_sl_entries()
 		self.set_balance_value_from_bundle()
 
@@ -225,6 +211,7 @@ class DeprecatedBatchNoValuation:
 			.select(
 				sle.batch_no,
 				Sum(sle.actual_qty).as_("batch_qty"),
+				Sum(sle.stock_value_difference).as_("batch_value"),
 			)
 			.where(
 				(sle.item_code == self.sle.item_code)
@@ -241,9 +228,24 @@ class DeprecatedBatchNoValuation:
 		if self.sle.name:
 			query = query.where(sle.name != self.sle.name)
 
+		# Moving Average items with no Use Batch wise Valuation but want to use batch wise valuation
+		moving_avg_item_non_batch_value = False
+		if valuation_method := self.get_valuation_method(self.sle.item_code):
+			if valuation_method == "Moving Average" and not frappe.db.get_single_value(
+				"Stock Settings", "do_not_use_batchwise_valuation"
+			):
+				query = query.where(batch.use_batchwise_valuation == 0)
+				moving_avg_item_non_batch_value = True
+
 		batch_data = query.run(as_dict=True)
 		for d in batch_data:
 			self.available_qty[d.batch_no] += flt(d.batch_qty)
+			if moving_avg_item_non_batch_value:
+				self.non_batchwise_balance_qty[d.batch_no] += flt(d.batch_qty)
+				self.non_batchwise_balance_value[d.batch_no] += flt(d.batch_value)
+
+		if moving_avg_item_non_batch_value:
+			return
 
 		for d in batch_data:
 			if self.available_qty.get(d.batch_no):
@@ -271,6 +273,7 @@ class DeprecatedBatchNoValuation:
 			.select(
 				sle.stock_value,
 				sle.qty_after_transaction,
+				sle.stock_queue,
 			)
 			.where(
 				(sle.item_code == self.sle.item_code)
@@ -288,10 +291,7 @@ class DeprecatedBatchNoValuation:
 			query = query.where(sle.name != self.sle.name)
 
 		if self.sle.serial_and_batch_bundle:
-			query = query.where(
-				(sle.serial_and_batch_bundle != self.sle.serial_and_batch_bundle)
-				| (sle.serial_and_batch_bundle.isnull())
-			)
+			query = query.where(Coalesce(sle.serial_and_batch_bundle, "") != self.sle.serial_and_batch_bundle)
 
 		data = query.run(as_dict=True)
 
@@ -343,9 +343,24 @@ class DeprecatedBatchNoValuation:
 
 		query = query.where(bundle.voucher_type != "Pick List")
 
+		# Moving Average items with no Use Batch wise Valuation but want to use batch wise valuation
+		moving_avg_item_non_batch_value = False
+		if valuation_method := self.get_valuation_method(self.sle.item_code):
+			if valuation_method == "Moving Average" and not frappe.db.get_single_value(
+				"Stock Settings", "do_not_use_batchwise_valuation"
+			):
+				query = query.where(batch.use_batchwise_valuation == 0)
+				moving_avg_item_non_batch_value = True
+
 		batch_data = query.run(as_dict=True)
 		for d in batch_data:
 			self.available_qty[d.batch_no] += flt(d.batch_qty)
+			if moving_avg_item_non_batch_value:
+				self.non_batchwise_balance_qty[d.batch_no] += flt(d.batch_qty)
+				self.non_batchwise_balance_value[d.batch_no] += flt(d.batch_value)
+
+		if moving_avg_item_non_batch_value:
+			return
 
 		if not self.last_sle:
 			return
@@ -353,3 +368,8 @@ class DeprecatedBatchNoValuation:
 		for batch_no in self.available_qty:
 			self.non_batchwise_balance_value[batch_no] = flt(self.last_sle.stock_value)
 			self.non_batchwise_balance_qty[batch_no] = flt(self.last_sle.qty_after_transaction)
+
+	def get_valuation_method(self, item_code):
+		from erpnext.stock.utils import get_valuation_method
+
+		return get_valuation_method(item_code)

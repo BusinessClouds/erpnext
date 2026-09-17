@@ -285,7 +285,7 @@ class Timesheet(Document):
 			if data.activity_type or data.is_billable:
 				rate = get_activity_cost(self.employee, data.activity_type)
 				hours = data.billing_hours or 0
-				costing_hours = data.billing_hours or data.hours or 0
+				costing_hours = data.hours or 0
 				if rate:
 					data.billing_rate = (
 						flt(rate.get("billing_rate")) if flt(data.billing_rate) == 0 else data.billing_rate
@@ -295,6 +295,20 @@ class Timesheet(Document):
 					)
 					data.billing_amount = data.billing_rate * hours
 					data.costing_amount = data.costing_rate * costing_hours
+
+					exchange_rate = flt(self.get("exchange_rate")) or 1.0
+					data.base_billing_rate = flt(
+						data.billing_rate * exchange_rate, data.precision("base_billing_rate")
+					)
+					data.base_costing_rate = flt(
+						data.costing_rate * exchange_rate, data.precision("base_costing_rate")
+					)
+					data.base_billing_amount = flt(
+						data.billing_amount * exchange_rate, data.precision("base_billing_amount")
+					)
+					data.base_costing_amount = flt(
+						data.costing_amount * exchange_rate, data.precision("base_costing_amount")
+					)
 
 	def update_time_rates(self, ts_detail):
 		if not ts_detail.is_billable:
@@ -342,12 +356,16 @@ def get_projectwise_timesheet_data(project=None, parent=None, from_time=None, to
 
 @frappe.whitelist()
 def get_timesheet_detail_rate(timelog, currency):
-	timelog_detail = frappe.db.sql(
-		f"""SELECT tsd.billing_amount as billing_amount,
-		ts.currency as currency FROM `tabTimesheet Detail` tsd
-		INNER JOIN `tabTimesheet` ts ON ts.name=tsd.parent
-		WHERE tsd.name = '{timelog}'""",
-		as_dict=1,
+	ts = frappe.qb.DocType("Timesheet")
+	ts_detail = frappe.qb.DocType("Timesheet Detail")
+
+	timelog_detail = (
+		frappe.qb.from_(ts_detail)
+		.inner_join(ts)
+		.on(ts.name == ts_detail.parent)
+		.select(ts_detail.billing_amount.as_("billing_amount"), ts.currency.as_("currency"))
+		.where(ts_detail.name == timelog)
+		.run(as_dict=1)
 	)[0]
 
 	if timelog_detail.currency:
