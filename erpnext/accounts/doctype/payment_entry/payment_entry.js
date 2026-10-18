@@ -1409,31 +1409,59 @@ frappe.ui.form.on("Payment Entry", {
 	},
 
 	set_company_bank_account: function (frm) {
-		if (!["Pay", "Receive"].includes(frm.doc.payment_type)) return;
+		const doc = frm.doc;
+		const { company, payment_type } = doc;
+		const field = payment_type == "Pay" ? "paid_from" : "paid_to";
+		const account = doc[field];
+		const request = {};
 
-		const field = frm.doc.payment_type == "Pay" ? "paid_from" : "paid_to";
+		// Even an incomplete input supersedes the previous lookup.
+		frm._company_bank_account_request = request;
+		frm.set_company_bank_account_based_on_coa = false;
+		if (!["Pay", "Receive"].includes(payment_type) || !company || !account) return;
 
-		if (!frm.doc.company || !frm.doc[field]) return;
-
+		const is_current = () => frm._company_bank_account_request === request;
+		const finish = () => {
+			if (is_current()) {
+				frm._company_bank_account_request = null;
+				frm.set_company_bank_account_based_on_coa = false;
+			}
+		};
 		frm.set_company_bank_account_based_on_coa = true;
 
-		frappe.call({
-			method: "frappe.client.get_value",
-			args: {
-				doctype: "Bank Account",
-				filters: {
-					company: frm.doc.company,
-					account: frm.doc[field],
-					disabled: 0,
-				},
-				fieldname: ["name"],
-			},
-			callback: async function (r) {
-				if (r.message) await frm.set_value("bank_account", r.message.name);
-
-				frm.set_company_bank_account_based_on_coa = false;
-			},
-		});
+		try {
+			frappe
+				.call({
+					method: "frappe.client.get_value",
+					args: {
+						doctype: "Bank Account",
+						filters: { company, account, disabled: 0 },
+						fieldname: ["name"],
+					},
+					callback: async function (r) {
+						try {
+							if (
+								is_current() &&
+								frm.doc === doc &&
+								doc.company === company &&
+								doc.payment_type === payment_type &&
+								doc[field] === account &&
+								r.message
+							) {
+								await frm.set_value("bank_account", r.message.name);
+							}
+						} finally {
+							finish();
+						}
+					},
+					error: finish,
+				})
+				// Some Frappe error handlers bypass the request's error callback.
+				.fail(finish);
+		} catch (error) {
+			finish();
+			throw error;
+		}
 	},
 
 	sales_taxes_and_charges_template: function (frm) {
