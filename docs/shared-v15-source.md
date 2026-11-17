@@ -4,15 +4,21 @@ Tracking: [ERPNext #6](https://github.com/BusinessClouds/erpnext/issues/6), AB#3
 
 Companion reviews: [Frappe #37](https://github.com/BusinessClouds/frappe-dafater/pull/37),
 [Dafater5 #452](https://github.com/BusinessClouds/dafater5/pull/452) and
-[Docker #16](https://github.com/BusinessClouds/dafater5-docker/issues/16).
-The paired image keeps ERPNext's validated runtime/CI pin
-`6983865cb71fc4b6becdb0fbc1e6272036fc98b1`; later documentation-only commits do not
-change that pin or its runtime bytes.
+[Docker #17](https://github.com/BusinessClouds/dafater5-docker/pull/17).
+The paired image keeps ERPNext's validated runtime pin
+`6983865cb71fc4b6becdb0fbc1e6272036fc98b1`; later branch-policy and documentation
+changes do not alter that pin or its runtime bytes.
 
-Use the existing `press-dev` line as the reviewed BusinessClouds ERPNext v15.102
-development source for both SaaS engines. The branch retains its historical name;
-engine selection belongs to Dafater5's per-site contract, not ERPNext. A later
-branch rename can follow consumer inventory and release acceptance.
+Use `develop-v15` as the shared BusinessClouds ERPNext v15 development branch for
+both SaaS engines. PR #7 and new shared-product work target this branch. It starts
+at the reviewed v15.102.0-based source `e4eb8022d0d9b631ef5ad462cb572d19ea2233d1`,
+preserving the complete existing history without changing the validated runtime.
+Engine selection belongs to Dafater5's per-site contract.
+
+The prior `press-dev` reference is retained for transition and rollback, not as a
+parallel development line. No new product work should target it. Existing deployment
+references and immutable pins stay in place until their ordinary reviewed rollout;
+creating this branch does not switch any tenant or controller source.
 
 This change adds validation and documentation. It does not change ERPNext runtime
 code, dependencies, DocType metadata, tenant configuration or deployment pins.
@@ -22,11 +28,12 @@ code, dependencies, DocType metadata, tenant configuration or deployment pins.
 | Source | Commit | Role |
 | --- | --- | --- |
 | Upstream v15.102.0 | `1d14ba16398db3a220873509565c60f2932bed81` | Reviewed upstream product release |
-| `press-dev` and `press-prod` before this PR | `e4eb8022d0d9b631ef5ad462cb572d19ea2233d1` | Same source; no branch merge is needed |
+| New `develop-v15` baseline | `e4eb8022d0d9b631ef5ad462cb572d19ea2233d1` | Shared engine-neutral v15 development target |
+| Historical `press-dev` and `press-prod` | `e4eb8022d0d9b631ef5ad462cb572d19ea2233d1` | Same baseline retained for transition/rollback; no runtime merge is needed |
 | Existing candidate manifest's ERPNext pin | `50abb892ec7b93abf408d942e0dcb8eb66deac4c` | Two commits behind the shared baseline |
 | Earlier v15.75.1 metadata correction | `ddc14ab7f6c6bfd2ac23feb0b03f0b31f322e9c5` | Historical migration input |
 
-The fork's `develop` is v17 development. Its moving `version-15` branch was
+The fork's existing `develop` is v17 development. Its moving `version-15` branch was
 v15.121.3 at review time. Neither is the target or an approved dependency upgrade
 for this task. All current refs were checked without changing either mainline.
 
@@ -75,7 +82,9 @@ python -m unittest discover -s tests -p 'test_shared_v15_*.py' -v
 ```
 
 Use Node 18 or newer and Python 3.10 or newer. The focused workflow runs these on
-PRs targeting `press-dev` when their source, tests or workflow change. It checks:
+PRs targeting `develop-v15` when their source, tests or workflow change. The
+existing local branch guard also protects this shared branch from direct commits.
+The focused workflow checks:
 
 - callback behavior, asynchronous field handlers, error recovery, retries and
   stale requests;
@@ -94,13 +103,22 @@ installer failed while parsing a Node 27 prerelease version; no applicable hook 
 and no repository toolchain setting was changed. Workflow YAML parsing and
 `git diff --check` also passed.
 
+The branch-policy follow-up verifies that `develop-v15` starts at the exact
+recorded baseline, PR #7 targets it, and the focused workflow and local branch
+guard use that same name. All 22 JavaScript cases, nine Python cases and applicable
+pre-commit hooks pass again. Runtime files and dependency declarations remain
+byte-identical to the validated image pin, so its native receipts remain applicable.
+
 The inherited documentation workflow queried `frappe/erpnext` using this fork's
 PR number and failed with `Pull Request Not Found`. It now passes GitHub's
 `GITHUB_REPOSITORY` to the helper. Feature documentation rules, recognized domains
 and API-failure behavior are unchanged. A local helper call without the optional
 repository argument intentionally retains its historical upstream default.
 
-Inherited full ERPNext CI remains enabled. Its framework-source and reporting
+Inherited full ERPNext CI remains enabled. Its installer derives upstream Frappe
+and Payments branches from the PR base, which cannot resolve a fork-only
+`develop-v15` line. Retargeting does not repair that dependency-source contract;
+historical failures named the former `press-dev` base. These source/reporting
 limitations are tracked separately in
 [ERPNext #5](https://github.com/BusinessClouds/erpnext/issues/5). A passing focused
 workflow does not replace full ERP/database/consumer acceptance or authorize a

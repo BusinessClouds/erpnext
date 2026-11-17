@@ -2,7 +2,7 @@ name: Shared v15 source contract
 
 on:
   pull_request:
-    branches: [press-dev]
+    branches: [develop-v15]
     paths:
       - .github/workflows/shared-v15-contract.yml
       - .github/workflows/docs-checker.yml

@@ -38,9 +38,9 @@ ERPNext is built on the [Frappe Framework](https://github.com/frappe/frappe), a 
 
 ## BusinessClouds shared v15 source
 
-The existing `press-dev` branch is the reviewed v15.102 development line for both
-legacy SaaS Money v2 and Press tenant images. Its name does not select a tenant's
-hosting engine. See [the shared source contract](docs/shared-v15-source.md) for
+`develop-v15` is the shared v15 development branch for both legacy SaaS Money v2
+and Press. New shared-product pull requests target this engine-neutral branch.
+See [the shared source contract](docs/shared-v15-source.md) for
 exact baseline commits, compatibility checks and consumer pin requirements.
 
 ## Installation
