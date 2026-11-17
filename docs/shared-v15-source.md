@@ -2,6 +2,13 @@
 
 Tracking: [ERPNext #6](https://github.com/BusinessClouds/erpnext/issues/6), AB#33816.
 
+Companion reviews: [Frappe #37](https://github.com/BusinessClouds/frappe-dafater/pull/37),
+[Dafater5 #452](https://github.com/BusinessClouds/dafater5/pull/452) and
+[Docker #16](https://github.com/BusinessClouds/dafater5-docker/issues/16).
+The paired image keeps ERPNext's validated runtime/CI pin
+`6983865cb71fc4b6becdb0fbc1e6272036fc98b1`; later documentation-only commits do not
+change that pin or its runtime bytes.
+
 Use the existing `press-dev` line as the reviewed BusinessClouds ERPNext v15.102
 development source for both SaaS engines. The branch retains its historical name;
 engine selection belongs to Dafater5's per-site contract, not ERPNext. A later
