@@ -1,7 +1,7 @@
 import sys
-import requests
 from urllib.parse import urlparse
 
+import requests
 
 WEBSITE_REPOS = [
 	"erpnext_com",
@@ -37,15 +37,11 @@ def is_documentation_link(word: str) -> bool:
 
 
 def contains_documentation_link(body: str) -> bool:
-	return any(
-		is_documentation_link(word)
-		for line in body.splitlines()
-		for word in line.split()
-	)
+	return any(is_documentation_link(word) for line in body.splitlines() for word in line.split())
 
 
-def check_pull_request(number: str) -> "tuple[int, str]":
-	response = requests.get(f"https://api.github.com/repos/frappe/erpnext/pulls/{number}")
+def check_pull_request(number: str, repository: str = "frappe/erpnext") -> "tuple[int, str]":
+	response = requests.get(f"https://api.github.com/repos/{repository}/pulls/{number}")
 	if not response.ok:
 		return 1, "Pull Request Not Found! ⚠️"
 
@@ -54,12 +50,7 @@ def check_pull_request(number: str) -> "tuple[int, str]":
 	head_sha = (payload.get("head") or {}).get("sha")
 	body = (payload.get("body") or "").lower()
 
-	if (
-		not title.startswith("feat")
-		or not head_sha
-		or "no-docs" in body
-		or "backport" in body
-	):
+	if not title.startswith("feat") or not head_sha or "no-docs" in body or "backport" in body:
 		return 0, "Skipping documentation checks... 🏃"
 
 	if contains_documentation_link(body):
@@ -69,6 +60,7 @@ def check_pull_request(number: str) -> "tuple[int, str]":
 
 
 if __name__ == "__main__":
-	exit_code, message = check_pull_request(sys.argv[1])
+	repository = sys.argv[2] if len(sys.argv) > 2 else "frappe/erpnext"
+	exit_code, message = check_pull_request(sys.argv[1], repository)
 	print(message)
 	sys.exit(exit_code)

@@ -64,7 +64,7 @@ No tenant, database, credentials or package installation is required:
 
 ```sh
 node --test tests/js/payment_entry_bank_account.test.js
-python -m unittest discover -s tests -p test_shared_v15_metadata.py -v
+python -m unittest discover -s tests -p 'test_shared_v15_*.py' -v
 ```
 
 Use Node 18 or newer and Python 3.10 or newer. The focused workflow runs these on
@@ -75,15 +75,23 @@ PRs targeting `press-dev` when their source, tests or workflow change. It checks
 - identical native permission-denial and retry behavior with an absent engine
   selector, explicit `legacy_v2`, and explicit `press`;
 - unique and complete Stock Settings field ordering, a newer migration timestamp,
-  and unchanged opt-in defaults for stock-policy controls.
+  and unchanged opt-in defaults for stock-policy controls;
+- the documentation guard's fork repository lookup and unchanged failure rules.
 
 Local verification on 2026-11-17 passed all 22 JavaScript cases on Node 18.20.8
-and Node 22.22.0, plus all three metadata cases on Python 3.10. The configured
+and Node 22.22.0, plus all three metadata and six documentation-guard cases on
+Python 3.10. The configured
 pre-commit checks passed using the installed Node 22 through a temporary
 `default_language_version.node: system` setting. The unchanged default Node
 installer failed while parsing a Node 27 prerelease version; no applicable hook was bypassed
 and no repository toolchain setting was changed. Workflow YAML parsing and
 `git diff --check` also passed.
+
+The inherited documentation workflow queried `frappe/erpnext` using this fork's
+PR number and failed with `Pull Request Not Found`. It now passes GitHub's
+`GITHUB_REPOSITORY` to the helper. Feature documentation rules, recognized domains
+and API-failure behavior are unchanged. A local helper call without the optional
+repository argument intentionally retains its historical upstream default.
 
 Inherited full ERPNext CI remains enabled. Its framework-source and reporting
 limitations are tracked separately in
