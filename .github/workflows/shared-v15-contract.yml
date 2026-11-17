@@ -1,0 +1,39 @@
+name: Shared v15 source contract
+
+on:
+  pull_request:
+    branches: [develop-v15]
+    paths:
+      - .github/workflows/shared-v15-contract.yml
+      - .github/workflows/docs-checker.yml
+      - .github/helper/documentation.py
+      - erpnext/accounts/doctype/payment_entry/payment_entry.js
+      - erpnext/stock/doctype/stock_settings/stock_settings.json
+      - tests/js/payment_entry_bank_account.test.js
+      - tests/test_shared_v15_metadata.py
+      - tests/test_shared_v15_documentation_guard.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shared-v15-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shared-v15-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Payment lookup callback, denial, retry and race regressions
+        run: node --test tests/js/payment_entry_bank_account.test.js
+      - name: Stock Settings metadata and fork documentation checks
+        run: python -m unittest discover -s tests -p 'test_shared_v15_*.py' -v
