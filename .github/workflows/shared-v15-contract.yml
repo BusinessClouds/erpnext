@@ -8,8 +8,10 @@ on:
       - .github/workflows/docs-checker.yml
       - .github/helper/documentation.py
       - erpnext/accounts/doctype/payment_entry/payment_entry.js
+      - erpnext/public/js/setup_wizard.js
       - erpnext/stock/doctype/stock_settings/stock_settings.json
       - tests/js/payment_entry_bank_account.test.js
+      - tests/js/setup_wizard_chart_of_accounts.test.js
       - tests/test_shared_v15_metadata.py
       - tests/test_shared_v15_documentation_guard.py
   workflow_dispatch:
@@ -35,5 +37,7 @@ jobs:
           python-version: '3.10'
       - name: Payment lookup callback, denial, retry and race regressions
         run: node --test tests/js/payment_entry_bank_account.test.js
+      - name: Setup wizard visible and hidden chart controls
+        run: node --test tests/js/setup_wizard_chart_of_accounts.test.js
       - name: Stock Settings metadata and fork documentation checks
         run: python -m unittest discover -s tests -p 'test_shared_v15_*.py' -v

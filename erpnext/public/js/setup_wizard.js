@@ -126,15 +126,29 @@ erpnext.setup.slides_settings = [
 
 		load_chart_of_accounts: function (slide) {
 			let country = frappe.wizard.values.country || frappe.defaults.get_default("country");
+			const field = slide.get_field("chart_of_accounts");
+			const request = {};
+			slide._chart_of_accounts_request = request;
 
-			if (country) {
+			if (country && field) {
 				frappe.call({
 					method: "erpnext.accounts.doctype.account.chart_of_accounts.chart_of_accounts.get_charts_for_country",
 					args: { country: country, with_standard: true },
 					callback: function (r) {
-						if (r.message) {
-							slide.get_input("chart_of_accounts").empty().add_options(r.message);
+						const current_country =
+							frappe.wizard.values.country || frappe.defaults.get_default("country");
+						if (
+							!Array.isArray(r.message) ||
+							slide._chart_of_accounts_request !== request ||
+							slide.get_field("chart_of_accounts") !== field ||
+							current_country !== country
+						) {
+							return;
 						}
+						// Hidden controls have no input element; update their model too.
+						field.df.options = r.message;
+						field.set_options();
+						field.set_value(r.message[0] || "");
 					},
 				});
 			}

@@ -5,9 +5,10 @@ Tracking: [ERPNext #6](https://github.com/BusinessClouds/erpnext/issues/6), AB#3
 Companion reviews: [Frappe #37](https://github.com/BusinessClouds/frappe-dafater/pull/37),
 [Dafater5 #452](https://github.com/BusinessClouds/dafater5/pull/452) and
 [Docker #17](https://github.com/BusinessClouds/dafater5-docker/pull/17).
-The paired image keeps ERPNext's validated runtime pin
-`6983865cb71fc4b6becdb0fbc1e6272036fc98b1`; later branch-policy and documentation
-changes do not alter that pin or its runtime bytes.
+The initial paired image used ERPNext's validated runtime pin
+`6983865cb71fc4b6becdb0fbc1e6272036fc98b1`. The later branch-policy and documentation
+commits kept its runtime bytes unchanged. The setup-wizard correction below
+changes JavaScript and requires a new reviewed application release and image build.
 
 Use `develop-v15` as the shared BusinessClouds ERPNext v15 development branch for
 both SaaS engines. PR #7 and new shared-product work target this branch. It starts
@@ -20,8 +21,10 @@ parallel development line. No new product work should target it. Existing deploy
 references and immutable pins stay in place until their ordinary reviewed rollout;
 creating this branch does not switch any tenant or controller source.
 
-This change adds validation and documentation. It does not change ERPNext runtime
-code, dependencies, DocType metadata, tenant configuration or deployment pins.
+The initial branch-policy change added validation and documentation without
+changing ERPNext runtime code. The subsequent setup-wizard correction updates
+the chart loader; dependencies, DocType metadata and tenant configuration remain
+unchanged.
 
 ## Baseline recorded on 2026-11-17
 
@@ -77,7 +80,7 @@ database migration; offline tests alone do not establish those results.
 No tenant, database, credentials or package installation is required:
 
 ```sh
-node --test tests/js/payment_entry_bank_account.test.js
+node --test tests/js/*.js
 python -m unittest discover -s tests -p 'test_shared_v15_*.py' -v
 ```
 
@@ -106,8 +109,27 @@ and no repository toolchain setting was changed. Workflow YAML parsing and
 The branch-policy follow-up verifies that `develop-v15` starts at the exact
 recorded baseline, PR #7 targets it, and the focused workflow and local branch
 guard use that same name. All 22 JavaScript cases, nine Python cases and applicable
-pre-commit hooks pass again. Runtime files and dependency declarations remain
-byte-identical to the validated image pin, so its native receipts remain applicable.
+pre-commit hooks pass again. At that branch-policy follow-up, runtime files and
+dependency declarations were byte-identical to the validated image pin, so its
+native receipts remained applicable. That historical receipt does not validate
+the later setup-wizard correction.
+
+## Setup-site correction on 2026-11-22
+
+Dafater5's Eirady organization slide hides the chart selector. Frappe therefore
+creates its Select control without an HTML input, and the native chart-loader
+callback previously failed while setting `selectedIndex`. The loader now updates
+the control's options and value through its API, including when it is hidden.
+It keeps the first returned chart selected and ignores responses for an older
+request, country or rebuilt control. See [setup-wizard notes](../erpnext/setup/setup_wizard/README.md).
+
+Validation passes with Node 22.22.0: 32 JavaScript cases (22 existing Payment Entry
+and 10 chart-loader cases), plus nine existing Python metadata/documentation cases.
+The configured pre-commit checks also pass using the installed Node 22 through
+a temporary `default_language_version.node: system` setting. No hook was bypassed.
+Publish a new app release and rebuild the candidate image with the paired Frappe
+and Dafater5 corrections before testing the complete browser setup flow. Existing
+image receipts and a code-only test do not establish that rebuilt-image acceptance.
 
 The inherited documentation workflow queried `frappe/erpnext` using this fork's
 PR number and failed with `Pull Request Not Found`. It now passes GitHub's
