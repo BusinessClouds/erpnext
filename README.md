@@ -36,6 +36,13 @@ ERPNext as a monolith includes the following areas for managing businesses:
 
 ERPNext is built on the [Frappe Framework](https://github.com/frappe/frappe), a full-stack web app framework built with Python & JavaScript.
 
+## BusinessClouds shared v15 source
+
+`develop-v15` is the shared v15 development branch for both legacy SaaS Money v2
+and Press. New shared-product pull requests target this engine-neutral branch.
+See [the shared source contract](docs/shared-v15-source.md) for
+exact baseline commits, compatibility checks and consumer pin requirements.
+
 ## Installation
 
 <div align="center" style="max-height: 40px;">

@@ -18,12 +18,13 @@ function deferred() {
 	return { promise, resolve, reject };
 }
 
-function setup(doc = {}) {
+function setup(doc = {}, boot) {
 	const handlers = {};
 	const requests = [];
 	const failures = [];
 	const writes = [];
 	const frappe = {
+		boot,
 		provide() {},
 		ui: { form: { on: (doctype, events) => (handlers[doctype] = events) } },
 		call: (options) => {
@@ -51,6 +52,30 @@ function setup(doc = {}) {
 	};
 	const lookup = () => handlers["Payment Entry"].set_company_bank_account(frm);
 	return { frm, frappe, requests, failures, writes, lookup, events: handlers["Payment Entry"] };
+}
+
+for (const [label, boot] of [
+	["unmarked legacy", {}],
+	["explicit legacy", { dafater_saas_engine: "legacy_v2" }],
+	["Press", { dafater_saas_engine: "press" }],
+]) {
+	test(`${label} preserves native denial and can retry without a SaaS-specific lookup`, async () => {
+		const { frm, requests, writes, failures, lookup } = setup({ bank_account: "Existing Bank" }, boot);
+		lookup();
+		requests[0].error({ status: 403, responseJSON: { exc_type: "PermissionError" } });
+		failures[0]();
+		assert.equal(frm.doc.bank_account, "Existing Bank");
+		assert.equal(frm.set_company_bank_account_based_on_coa, false);
+		assert.deepEqual(writes, []);
+		assert.equal(requests.length, 1, "denial must not launch an alternative lookup");
+
+		lookup();
+		assert.equal(requests[1].method, "frappe.client.get_value");
+		assert.equal(requests[1].args.doctype, "Bank Account");
+		await requests[1].callback({ message: { name: "Permitted Bank" } });
+		assert.deepEqual(writes, [["bank_account", "Permitted Bank"]]);
+		assert.equal(frm.set_company_bank_account_based_on_coa, false);
+	});
 }
 
 for (const payment_type of ["Pay", "Receive"]) {
